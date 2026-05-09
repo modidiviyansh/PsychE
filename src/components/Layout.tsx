@@ -5,6 +5,7 @@ import { Navbar } from './Navbar';
 export const Layout: React.FC = () => {
   return (
     <div className="app-container">
+      <div className="animated-bg"></div>
       <Navbar />
       <main className="main-content">
         <Outlet />

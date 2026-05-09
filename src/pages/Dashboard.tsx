@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { Plus, Users, Clock, FileText, ChevronRight, Search } from 'lucide-react';
+import { Plus, Users, Clock, FileText, ChevronRight, Search, Download } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import Papa from 'papaparse';
@@ -101,18 +101,74 @@ export const Dashboard: React.FC = () => {
       complete: async (results) => {
         try {
           alert('Uploading data... Please wait.');
-          const formattedData = results.data.map((row: any) => ({
-            student_id: row.student_id || row.id,
-            full_name: row.full_name || row.name,
-            course: row.course || 'Unknown',
-            email: row.email || null,
-            mobile: row.mobile || row.phone || null
-          }));
+          const studentsMap = new Map();
+          const logsToCreate: any[] = [];
 
-          const { error } = await supabase.from('PsychE_Students').insert(formattedData);
-          if (error) throw error;
+          results.data.forEach((row: any) => {
+            const studentId = row.student_id || row.id;
+            if (!studentId) return;
 
-          alert('Bulk Onboarding Successful!');
+            // 1. Prepare Student Data
+            if (!studentsMap.has(studentId)) {
+              studentsMap.set(studentId, {
+                student_id: studentId,
+                full_name: row.full_name || row.name || 'Unknown',
+                course: row.course || 'Unknown',
+                email: row.email || null,
+                mobile: row.mobile || row.phone || null,
+                fathers_name: row.fathers_name || null,
+                mothers_name: row.mothers_name || null,
+                enrolled_date: row.enrolled_date || null
+              });
+            }
+
+            // 2. Prepare Log Data if present
+            if (row.reason || row.counselor_name || row.student_response) {
+              logsToCreate.push({
+                _temp_student_id: studentId,
+                counselor_name: row.counselor_name || 'System Import',
+                session_date: row.session_date || new Date().toISOString(),
+                reason: row.reason || 'Imported Log',
+                student_response: row.student_response || '',
+                recommended_action: row.recommended_action || ''
+              });
+            }
+          });
+
+          const uniqueStudents = Array.from(studentsMap.values());
+          if (uniqueStudents.length === 0) throw new Error('No valid data found in CSV.');
+
+          // 3. Upsert Students
+          const { data: upsertedStudents, error: studentError } = await supabase
+            .from('PsychE_Students')
+            .upsert(uniqueStudents, { onConflict: 'student_id' })
+            .select('id, student_id');
+            
+          if (studentError) throw studentError;
+
+          // 4. Map UUIDs and Insert Logs
+          if (logsToCreate.length > 0 && upsertedStudents) {
+            const idMap: Record<string, string> = {};
+            upsertedStudents.forEach(s => { idMap[s.student_id] = s.id; });
+
+            const finalLogs = logsToCreate
+              .filter(log => idMap[log._temp_student_id])
+              .map(log => ({
+                student_uuid: idMap[log._temp_student_id],
+                counselor_name: log.counselor_name,
+                session_date: log.session_date,
+                reason: log.reason,
+                student_response: log.student_response,
+                recommended_action: log.recommended_action
+              }));
+
+            if (finalLogs.length > 0) {
+              const { error: logsError } = await supabase.from('PsychE_Counseling_Logs').insert(finalLogs);
+              if (logsError) throw logsError;
+            }
+          }
+
+          alert(`Success! Imported ${uniqueStudents.length} students and ${logsToCreate.length} counseling records.`);
           fetchDashboardData(); // Refresh stats
         } catch (error: any) {
           console.error(error);
@@ -120,6 +176,35 @@ export const Dashboard: React.FC = () => {
         }
       }
     });
+  };
+
+  const downloadCsvTemplate = () => {
+    const templateData = [
+      {
+        student_id: 'STU-101',
+        full_name: 'John Doe',
+        course: '10th Grade Section A',
+        email: 'john@student.gcm.edu',
+        mobile: '+91 9876543210',
+        fathers_name: 'Robert Doe',
+        mothers_name: 'Jane Doe',
+        enrolled_date: '2026-01-01',
+        counselor_name: 'Dr. Sarah Smith',
+        session_date: '2026-05-09T10:00:00Z',
+        reason: 'Academic Stress',
+        student_response: 'Student felt overwhelmed with upcoming exams.',
+        recommended_action: 'Scheduled a follow-up session next week.'
+      }
+    ];
+    const csv = Papa.unparse(templateData);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', 'PsychE_Student_Import_Template.csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const generateMonthlyReport = async () => {
@@ -310,20 +395,37 @@ export const Dashboard: React.FC = () => {
               onChange={handleBulkUpload}
             />
             
-            <motion.button 
-              onClick={() => fileInputRef.current?.click()}
-              whileHover={{ scale: 1.02 }} 
-              className="btn btn-secondary" 
-              style={{ width: '100%', justifyContent: 'flex-start', padding: '1rem', border: '1px solid var(--color-border)', cursor: 'pointer' }}
-            >
-              <div style={{ background: 'rgba(94, 106, 210, 0.1)', padding: '0.5rem', borderRadius: '8px', marginRight: '0.5rem' }}>
-                <Users size={20} color="var(--color-primary)" />
-              </div>
-              <div style={{ textAlign: 'left' }}>
-                <p style={{ fontWeight: 600 }}>Bulk Onboard Students</p>
-                <p className="text-muted" style={{ fontSize: '0.75rem' }}>Upload CSV roster</p>
-              </div>
-            </motion.button>
+            <div className="flex gap-2 w-full">
+              <motion.button 
+                onClick={() => fileInputRef.current?.click()}
+                whileHover={{ scale: 1.02 }} 
+                className="btn btn-secondary" 
+                style={{ flex: 1, justifyContent: 'flex-start', padding: '1rem', border: '1px solid var(--color-border)', cursor: 'pointer' }}
+              >
+                <div style={{ background: 'rgba(94, 106, 210, 0.1)', padding: '0.5rem', borderRadius: '8px', marginRight: '0.5rem' }}>
+                  <Users size={20} color="var(--color-primary)" />
+                </div>
+                <div style={{ textAlign: 'left' }}>
+                  <p style={{ fontWeight: 600 }}>Bulk Onboard</p>
+                  <p className="text-muted" style={{ fontSize: '0.75rem' }}>Upload CSV</p>
+                </div>
+              </motion.button>
+              
+              <motion.button 
+                onClick={downloadCsvTemplate}
+                whileHover={{ scale: 1.02 }} 
+                className="btn btn-secondary" 
+                style={{ flex: 1, justifyContent: 'flex-start', padding: '1rem', border: '1px solid var(--color-border)', cursor: 'pointer' }}
+              >
+                <div style={{ background: 'rgba(255, 255, 255, 0.05)', padding: '0.5rem', borderRadius: '8px', marginRight: '0.5rem' }}>
+                  <Download size={20} className="text-muted" />
+                </div>
+                <div style={{ textAlign: 'left' }}>
+                  <p style={{ fontWeight: 600 }}>Template</p>
+                  <p className="text-muted" style={{ fontSize: '0.75rem' }}>Download CSV</p>
+                </div>
+              </motion.button>
+            </div>
             
             <motion.button 
               onClick={generateMonthlyReport}
