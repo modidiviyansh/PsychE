@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Printer, Edit2, Calendar, Phone, Mail, BookOpen, ArrowLeft, Eye, EyeOff } from 'lucide-react';
+import { Printer, Edit2, Calendar, Phone, Mail, BookOpen, ArrowLeft, Eye, EyeOff, User } from 'lucide-react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 
@@ -99,6 +99,11 @@ export const StudentProfile: React.FC = () => {
             <ArrowLeft size={16} /> Back
           </button>
           <h1 className="text-h1 flex items-center gap-3">
+            {student.profile_image ? (
+              <img src={student.profile_image} alt={student.full_name} style={{ width: '48px', height: '48px', borderRadius: '50%', objectFit: 'cover' }} />
+            ) : (
+              <div style={{ width: '48px', height: '48px', borderRadius: '50%', backgroundColor: 'rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><User size={24} /></div>
+            )}
             {student.full_name}
             <span style={{ fontSize: '0.875rem', padding: '0.25rem 0.75rem', backgroundColor: 'rgba(94, 106, 210, 0.1)', color: 'var(--color-primary)', borderRadius: 'var(--radius-full)' }}>Active</span>
           </h1>
@@ -108,7 +113,13 @@ export const StudentProfile: React.FC = () => {
           <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} className="btn btn-secondary" onClick={() => window.print()}>
             <Printer size={18} /> Print Record
           </motion.button>
-          <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} className="btn btn-primary" style={{ background: 'linear-gradient(135deg, var(--color-primary), #8b5cf6)', border: 'none', boxShadow: '0 4px 12px rgba(94, 106, 210, 0.3)' }}>
+          <motion.button 
+            onClick={() => navigate(`/edit-student/${student.id}`)}
+            whileHover={{ scale: 1.05 }} 
+            whileTap={{ scale: 0.95 }} 
+            className="btn btn-primary" 
+            style={{ background: 'linear-gradient(135deg, var(--color-primary), #8b5cf6)', border: 'none', boxShadow: '0 4px 12px rgba(94, 106, 210, 0.3)' }}
+          >
             <Edit2 size={18} /> Edit Profile
           </motion.button>
         </div>
@@ -160,10 +171,16 @@ export const StudentProfile: React.FC = () => {
               </button>
             </div>
 
-            {/* Guardian */}
+            {/* Father */}
             <div className="flex items-center gap-3">
-              <div style={{ padding: '0.5rem', backgroundColor: 'var(--color-bg)', borderRadius: 'var(--radius-md)' }}><BookOpen size={16} className="text-primary"/></div>
-              <div><p className="text-muted" style={{ fontSize: '0.75rem' }}>Guardian</p><p style={{ fontWeight: 500 }}>{student.fathers_name || student.mothers_name || 'N/A'}</p></div>
+              <div style={{ padding: '0.5rem', backgroundColor: 'var(--color-bg)', borderRadius: 'var(--radius-md)' }}><User size={16} className="text-primary"/></div>
+              <div><p className="text-muted" style={{ fontSize: '0.75rem' }}>Father's Name</p><p style={{ fontWeight: 500 }}>{student.fathers_name || 'N/A'}</p></div>
+            </div>
+
+            {/* Mother */}
+            <div className="flex items-center gap-3">
+              <div style={{ padding: '0.5rem', backgroundColor: 'var(--color-bg)', borderRadius: 'var(--radius-md)' }}><User size={16} className="text-primary"/></div>
+              <div><p className="text-muted" style={{ fontSize: '0.75rem' }}>Mother's Name</p><p style={{ fontWeight: 500 }}>{student.mothers_name || 'N/A'}</p></div>
             </div>
 
             {/* Enrolled */}
