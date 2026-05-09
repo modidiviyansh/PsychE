@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, UserPlus, Activity, LogOut, BookOpen } from 'lucide-react';
+import { Search, UserPlus, Activity, LogOut, BookOpen, Users } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from '../lib/supabase';
@@ -184,6 +184,16 @@ export const Navbar: React.FC = () => {
       </div>
 
       <div className="flex items-center gap-4">
+        <motion.button 
+          onClick={() => navigate('/directory')}
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          className="btn btn-secondary"
+          style={{ border: 'none', padding: '0.5rem 1rem' }}
+        >
+          <Users size={16} className="text-muted" />
+          <span className="text-muted" style={{ fontWeight: 500 }}>Directory</span>
+        </motion.button>
         <motion.button 
           onClick={() => navigate('/add-student')}
           whileHover={{ scale: 1.05 }}

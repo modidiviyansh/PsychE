@@ -179,6 +179,10 @@ input, textarea, select {
 .mb-4 { margin-bottom: 1rem; }
 .mb-6 { margin-bottom: 1.5rem; }
 
+.print-only {
+  display: none;
+}
+
 /* Print Styles - Beautiful A4 Official Report */
 @media print {
   @page {
@@ -243,6 +247,16 @@ input, textarea, select {
     margin-top: 0.5rem;
     font-size: 9pt;
     color: #374151 !important;
+  }
+  
+  /* Utilities */
+  .page-break {
+    page-break-after: always;
+    break-after: page;
+  }
+  
+  .print-only {
+    display: block !important;
   }
   
   /* Print Card Styling */

@@ -321,10 +321,15 @@ export const Dashboard: React.FC = () => {
 
         {/* Stats Summary */}
         <motion.div variants={item} className="bento-card" style={{ gridColumn: 'span 4', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-          <div>
+          <div 
+            onClick={() => navigate('/directory')}
+            style={{ cursor: 'pointer', transition: 'transform 0.2s' }}
+            onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.02)'}
+            onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
+          >
             <div className="flex items-center gap-2 mb-2 text-muted">
               <Users size={18} />
-              <span style={{ fontWeight: 500 }}>Total Students</span>
+              <span style={{ fontWeight: 500 }}>Total Students <ChevronRight size={14} style={{ display: 'inline' }}/></span>
             </div>
             <p style={{ fontSize: '3rem', fontWeight: 700, lineHeight: 1 }}>{loading ? '...' : totalStudents}</p>
           </div>
