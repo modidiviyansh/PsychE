@@ -51,5 +51,19 @@ PsychE is a streamlined, mini-CRM designed specifically for school counselors to
 * **Entities:**
   * `PsychE_Students`: Master record for demographics.
   * `PsychE_Counseling_Logs`: Transactional records linked via `student_uuid`.
-* **Security:** Implement basic Row Level Security (RLS) in Supabase to ensure only authorized counseling staff can access or write records.
 * **Performance:** Keep external dependencies to an absolute minimum. Use native browser features for printing and basic HTML/JS/CSS or a lightweight framework for the frontend to ensure a "no heavy workload" execution.
+
+## 6. Version 2.0 Changes (Advanced Scheduling & Security)
+The application has been upgraded to **Version 2.0**, introducing proactive task management, strict capacity enforcement, and enhanced security mechanisms:
+
+### 6.1. Capacity-Aware Task Management
+* **Global Capacity Limits:** Administrators can define a maximum number of sessions a counselor can handle per day (e.g., 7 sessions) via a Settings dashboard.
+* **7-Day Kanban Planner:** A rolling 7-day visual planner displaying scheduled sessions as cards. Includes drag-and-drop capability to rapidly reschedule sessions across days.
+* **Overdue Tracking & Task Completion:** The system automatically identifies past-due scheduled sessions and pushes them to a red "Overdue" column. Tasks can be marked "Completed" directly from the board, prompting the user for session notes.
+* **Visual Scheduling:** The "Add Log" interface uses an interactive date picker that explicitly prevents overbooking by highlighting full days.
+* **Bulk Auto-Scheduler:** A utility to select multiple students and automatically distribute their initial sessions across available upcoming dates, perfectly filling capacity limits.
+
+### 6.2. Security & Application Control
+* **PIN Access Screen:** The entire application is protected by a glassmorphic PIN entry screen.
+* **Dynamic Settings:** Authorized security PINs and the current App Version string are stored in the database (`PsychE_Settings`) and can be managed directly via the UI.
+* **High-Risk Flagging:** Students tagged as high-risk are heavily highlighted across the Kanban board and Dashboard for immediate triage.
