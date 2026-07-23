@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, UserPlus, Activity, LogOut, BookOpen, Users } from 'lucide-react';
+import { Search, UserPlus, Activity, LogOut, BookOpen, Users, Settings as SettingsIcon, LayoutDashboard } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from '../lib/supabase';
@@ -206,6 +206,23 @@ export const Navbar: React.FC = () => {
         </motion.button>
         <div style={{ width: '1px', height: '24px', backgroundColor: 'var(--color-border)' }}></div>
         <motion.button 
+          onClick={() => navigate('/kanban')}
+          whileHover={{ scale: 1.1, color: 'var(--color-primary)' }}
+          whileTap={{ scale: 0.95 }}
+          className="btn btn-secondary" style={{ padding: '0.5rem', background: 'transparent', border: 'none' }} title="Planner"
+        >
+          <LayoutDashboard size={20} />
+        </motion.button>
+        <motion.button 
+          onClick={() => navigate('/settings')}
+          whileHover={{ scale: 1.1, color: 'var(--color-primary)' }}
+          whileTap={{ scale: 0.95 }}
+          className="btn btn-secondary" style={{ padding: '0.5rem', background: 'transparent', border: 'none' }} title="Settings"
+        >
+          <SettingsIcon size={20} />
+        </motion.button>
+        <motion.button 
+          onClick={() => navigate('/logs')}
           whileHover={{ scale: 1.1, color: 'var(--color-primary)' }}
           whileTap={{ scale: 0.95 }}
           className="btn btn-secondary" style={{ padding: '0.5rem', background: 'transparent', border: 'none' }} title="Activity Logs"

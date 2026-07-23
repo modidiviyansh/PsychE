@@ -106,6 +106,14 @@ export const StudentProfile: React.FC = () => {
             )}
             {student.full_name}
             <span style={{ fontSize: '0.875rem', padding: '0.25rem 0.75rem', backgroundColor: 'rgba(94, 106, 210, 0.1)', color: 'var(--color-primary)', borderRadius: 'var(--radius-full)' }}>Active</span>
+            <span style={{ 
+              fontSize: '0.875rem', 
+              padding: '0.25rem 0.75rem', 
+              backgroundColor: student.risk_level === 'High' ? 'rgba(239, 68, 68, 0.1)' : student.risk_level === 'Medium' ? 'rgba(245, 158, 11, 0.1)' : 'rgba(74, 222, 128, 0.1)',
+              color: student.risk_level === 'High' ? '#ef4444' : student.risk_level === 'Medium' ? '#f59e0b' : '#4ade80',
+              borderRadius: 'var(--radius-full)',
+              fontWeight: 600
+            }}>Risk: {student.risk_level || 'Low'}</span>
           </h1>
           <p className="text-muted">{student.course} • ID: {student.student_id}</p>
         </div>
@@ -229,6 +237,11 @@ export const StudentProfile: React.FC = () => {
                       
                       <div className="flex justify-between items-start mb-3">
                         <div>
+                          <div className="flex items-center gap-2 mb-1">
+                            <span style={{ fontSize: '0.75rem', padding: '0.1rem 0.5rem', backgroundColor: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: '4px', color: 'var(--color-primary)' }}>
+                              {log.interaction_type || 'Session'}
+                            </span>
+                          </div>
                           <h4 className="text-h3" style={{ fontSize: '1.25rem' }}>{log.reason}</h4>
                           <p className="text-muted" style={{ fontSize: '0.875rem' }}>{log.counselor_name} • {new Date(log.session_date).toLocaleString()}</p>
                         </div>
@@ -240,9 +253,17 @@ export const StudentProfile: React.FC = () => {
                           <p className="text-body" style={{ whiteSpace: 'pre-line', lineHeight: '1.6' }}>{log.student_response || 'No notes provided.'}</p>
                         </div>
                         
-                        <div className="print-action" style={{ display: 'inline-block', backgroundColor: 'rgba(74, 222, 128, 0.1)', color: 'var(--color-success)', padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)', fontSize: '0.875rem', fontWeight: 500 }}>
-                          <span style={{ fontSize: '0.75rem', display: 'block', opacity: 0.8, marginBottom: '4px', letterSpacing: '0.05em' }}>RECOMMENDED ACTION</span>
-                          {log.recommended_action || 'None'}
+                        <div className="flex gap-4 flex-wrap">
+                          <div className="print-action" style={{ flex: 1, backgroundColor: 'rgba(74, 222, 128, 0.1)', color: 'var(--color-success)', padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)', fontSize: '0.875rem', fontWeight: 500, minWidth: '200px' }}>
+                            <span style={{ fontSize: '0.75rem', display: 'block', opacity: 0.8, marginBottom: '4px', letterSpacing: '0.05em' }}>RECOMMENDED ACTION</span>
+                            {log.recommended_action || 'None'}
+                          </div>
+                          {log.follow_up_date && (
+                            <div className="print-action" style={{ flex: 1, backgroundColor: 'rgba(245, 158, 11, 0.1)', color: '#f59e0b', padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)', fontSize: '0.875rem', fontWeight: 500, minWidth: '200px' }}>
+                              <span style={{ fontSize: '0.75rem', display: 'block', opacity: 0.8, marginBottom: '4px', letterSpacing: '0.05em' }}>FOLLOW-UP ({log.follow_up_status || 'Pending'})</span>
+                              {new Date(log.follow_up_date).toLocaleDateString()}
+                            </div>
+                          )}
                         </div>
                       </div>
                     </motion.div>

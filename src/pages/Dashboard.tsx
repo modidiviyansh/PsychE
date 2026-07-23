@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { Plus, Users, Clock, FileText, ChevronRight, Search, Download } from 'lucide-react';
+import { Plus, Users, Clock, FileText, ChevronRight, Search, Download, Calendar } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import Papa from 'papaparse';
@@ -25,6 +25,9 @@ export const Dashboard: React.FC = () => {
   const [recentLogs, setRecentLogs] = useState<any[]>([]);
   const [totalStudents, setTotalStudents] = useState<number>(0);
   const [sessionsThisMonth, setSessionsThisMonth] = useState<number>(0);
+  const [upcomingFollowUps, setUpcomingFollowUps] = useState<any[]>([]);
+  const [overdueFollowUps, setOverdueFollowUps] = useState<any[]>([]);
+  const [highRiskStudents, setHighRiskStudents] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -76,6 +79,50 @@ export const Dashboard: React.FC = () => {
           color: getColorForReason(log.reason)
         }));
         setRecentLogs(formattedLogs);
+      }
+
+      // Fetch Upcoming Scheduled Sessions (Today and Future)
+      const todayIsoStr = new Date().toISOString().split('T')[0];
+      const { data: followUpData } = await supabase
+        .from('PsychE_Counseling_Logs')
+        .select(`
+          id, reason, scheduled_date, student_uuid,
+          PsychE_Students (full_name)
+        `)
+        .eq('session_status', 'Scheduled')
+        .gte('scheduled_date', todayIsoStr)
+        .order('scheduled_date', { ascending: true })
+        .limit(3);
+
+      if (followUpData) {
+        setUpcomingFollowUps(followUpData);
+      }
+
+      // Fetch Overdue Scheduled Sessions (Past dates)
+      const { data: overdueData } = await supabase
+        .from('PsychE_Counseling_Logs')
+        .select(`
+          id, reason, scheduled_date, student_uuid,
+          PsychE_Students (full_name)
+        `)
+        .eq('session_status', 'Scheduled')
+        .lt('scheduled_date', todayIsoStr)
+        .order('scheduled_date', { ascending: true })
+        .limit(3);
+
+      if (overdueData) {
+        setOverdueFollowUps(overdueData);
+      }
+
+      // Fetch High Risk Students
+      const { data: riskData } = await supabase
+        .from('PsychE_Students')
+        .select('id, full_name, student_id, course')
+        .eq('risk_level', 'High')
+        .limit(3);
+
+      if (riskData) {
+        setHighRiskStudents(riskData);
       }
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
@@ -435,7 +482,7 @@ export const Dashboard: React.FC = () => {
             <motion.button 
               onClick={generateMonthlyReport}
               whileHover={{ scale: 1.02 }} 
-              className="btn btn-secondary" 
+              className="btn btn-secondary mb-2" 
               style={{ width: '100%', justifyContent: 'flex-start', padding: '1rem', border: '1px solid var(--color-border)', cursor: 'pointer' }}
             >
               <div style={{ background: 'rgba(74, 222, 128, 0.1)', padding: '0.5rem', borderRadius: '8px', marginRight: '0.5rem' }}>
@@ -446,6 +493,81 @@ export const Dashboard: React.FC = () => {
                 <p className="text-muted" style={{ fontSize: '0.75rem' }}>Export session analytics</p>
               </div>
             </motion.button>
+            
+            <motion.button 
+              onClick={() => navigate('/bulk-schedule')}
+              whileHover={{ scale: 1.02 }} 
+              className="btn btn-secondary" 
+              style={{ width: '100%', justifyContent: 'flex-start', padding: '1rem', border: '1px solid var(--color-border)', cursor: 'pointer' }}
+            >
+              <div style={{ background: 'rgba(94, 106, 210, 0.1)', padding: '0.5rem', borderRadius: '8px', marginRight: '0.5rem' }}>
+                <Calendar size={20} color="var(--color-primary)" />
+              </div>
+              <div style={{ textAlign: 'left' }}>
+                <p style={{ fontWeight: 600 }}>Bulk Auto-Scheduler</p>
+                <p className="text-muted" style={{ fontSize: '0.75rem' }}>Distribute new initial sessions</p>
+              </div>
+            </motion.button>
+          </div>
+        </motion.div>
+
+        {/* Upcoming & Overdue Follow-ups */}
+        <motion.div variants={item} className="bento-card" style={{ gridColumn: 'span 7' }}>
+          <h3 className="text-h3 mb-4 flex items-center gap-2"><Calendar size={20} className="text-primary"/> Scheduled Sessions</h3>
+          <div className="flex" style={{ flexDirection: 'column', gap: '1rem' }}>
+            
+            {/* Overdue Section */}
+            {overdueFollowUps.length > 0 && overdueFollowUps.map(fu => (
+              <div key={fu.id} onClick={() => navigate(`/add-log?schedule_id=${fu.id}`)} className="flex justify-between items-center p-3" style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', borderRadius: 'var(--radius-md)', cursor: 'pointer', border: '1px solid rgba(239, 68, 68, 0.3)' }}>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <p style={{ fontWeight: 600, color: '#ef4444' }}>{fu.PsychE_Students?.full_name}</p>
+                    <span style={{ fontSize: '0.65rem', backgroundColor: '#ef4444', color: 'white', padding: '2px 6px', borderRadius: '4px', fontWeight: 600, textTransform: 'uppercase' }}>Overdue</span>
+                  </div>
+                  <p className="text-muted" style={{ fontSize: '0.875rem' }}>Reason: {fu.reason}</p>
+                </div>
+                <div style={{ backgroundColor: 'rgba(239, 68, 68, 0.2)', color: '#ef4444', padding: '0.25rem 0.75rem', borderRadius: 'var(--radius-full)', fontSize: '0.875rem', fontWeight: 600 }}>
+                  {new Date(fu.scheduled_date).toLocaleDateString()}
+                </div>
+              </div>
+            ))}
+
+            {/* Upcoming Section */}
+            {upcomingFollowUps.length === 0 && overdueFollowUps.length === 0 ? (
+              <p className="text-muted py-2">No pending sessions scheduled.</p>
+            ) : (
+              upcomingFollowUps.map(fu => (
+                <div key={fu.id} onClick={() => navigate(`/add-log?schedule_id=${fu.id}`)} className="flex justify-between items-center p-3" style={{ backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: 'var(--radius-md)', cursor: 'pointer', border: '1px solid var(--color-border)' }}>
+                  <div>
+                    <p style={{ fontWeight: 600 }}>{fu.PsychE_Students?.full_name}</p>
+                    <p className="text-muted" style={{ fontSize: '0.875rem' }}>Reason: {fu.reason}</p>
+                  </div>
+                  <div style={{ backgroundColor: 'rgba(94, 106, 210, 0.1)', color: 'var(--color-primary)', padding: '0.25rem 0.75rem', borderRadius: 'var(--radius-full)', fontSize: '0.875rem', fontWeight: 600 }}>
+                    {new Date(fu.scheduled_date).toLocaleDateString()}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </motion.div>
+
+        {/* High Risk Watchlist */}
+        <motion.div variants={item} className="bento-card" style={{ gridColumn: 'span 5', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
+          <h3 className="text-h3 mb-4 flex items-center gap-2" style={{ color: '#ef4444' }}><Users size={20} /> High Risk Watchlist</h3>
+          <div className="flex" style={{ flexDirection: 'column', gap: '1rem' }}>
+            {highRiskStudents.length === 0 ? (
+              <p className="text-muted py-2">No students currently flagged as High Risk.</p>
+            ) : (
+              highRiskStudents.map(student => (
+                <div key={student.id} onClick={() => navigate(`/student/${student.id}`)} className="flex justify-between items-center p-3" style={{ backgroundColor: 'rgba(239, 68, 68, 0.05)', borderRadius: 'var(--radius-md)', cursor: 'pointer' }}>
+                  <div>
+                    <p style={{ fontWeight: 600 }}>{student.full_name}</p>
+                    <p className="text-muted" style={{ fontSize: '0.875rem' }}>{student.course}</p>
+                  </div>
+                  <ChevronRight size={16} className="text-muted" />
+                </div>
+              ))
+            )}
           </div>
         </motion.div>
       </div>

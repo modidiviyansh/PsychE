@@ -6,12 +6,20 @@ import { AddLog } from './pages/AddLog';
 import { AddStudent } from './pages/AddStudent';
 import { AllLogs } from './pages/AllLogs';
 import { StudentDirectory } from './pages/StudentDirectory';
+import { Settings } from './pages/Settings';
+import { KanbanBoard } from './pages/KanbanBoard';
+import { BulkSchedule } from './pages/BulkSchedule';
+import { PinScreen } from './components/PinScreen';
 
 export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<Layout />}>
+        <Route path="/" element={
+          <PinScreen>
+            <Layout />
+          </PinScreen>
+        }>
           <Route index element={<Dashboard />} />
           <Route path="student/:id" element={<StudentProfile />} />
           <Route path="add-log" element={<AddLog />} />
@@ -19,6 +27,9 @@ export default function App() {
           <Route path="edit-student/:id" element={<AddStudent />} />
           <Route path="logs" element={<AllLogs />} />
           <Route path="directory" element={<StudentDirectory />} />
+          <Route path="settings" element={<Settings />} />
+          <Route path="kanban" element={<KanbanBoard />} />
+          <Route path="bulk-schedule" element={<BulkSchedule />} />
         </Route>
       </Routes>
     </BrowserRouter>

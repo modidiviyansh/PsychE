@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { ArrowLeft, Save } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
+import { getAvailableCapacityForDateRange } from '../lib/capacity';
 
 const container = {
   hidden: { opacity: 0 },
@@ -13,6 +14,7 @@ export const AddLog: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const prefilledStudentId = searchParams.get('student');
+  const scheduleId = searchParams.get('schedule_id');
 
   const [students, setStudents] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -25,34 +27,109 @@ export const AddLog: React.FC = () => {
   const [recommendedAction, setRecommendedAction] = useState('');
   const [fileUpdated, setFileUpdated] = useState(true);
   const [notificationSent, setNotificationSent] = useState(false);
+  const [interactionType, setInteractionType] = useState('Session');
+  const [followUpDate, setFollowUpDate] = useState('');
+
+  const [capacityData, setCapacityData] = useState<any[]>([]);
 
   useEffect(() => {
     async function fetchStudents() {
       const { data } = await supabase.from('PsychE_Students').select('id, full_name, student_id');
       if (data) setStudents(data);
     }
+    async function fetchScheduledLog() {
+      if (!scheduleId) return;
+      const { data } = await supabase.from('PsychE_Counseling_Logs').select('*').eq('id', scheduleId).single();
+      if (data) {
+        setStudentUuid(data.student_uuid);
+        setReason(data.reason);
+        setCounselorName(data.counselor_name || 'Dr. Sarah Smith');
+      }
+    }
+    async function fetchCapacity() {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const cap = await getAvailableCapacityForDateRange(today, 7);
+      
+      const arr = [];
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(today);
+        d.setDate(d.getDate() + i);
+        const dStr = d.toISOString().split('T')[0];
+        arr.push({
+          dateStr: dStr,
+          label: i === 0 ? 'Today' : d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
+          capacity: cap[dStr]
+        });
+      }
+      setCapacityData(arr);
+    }
     fetchStudents();
-  }, []);
+    fetchScheduledLog();
+    fetchCapacity();
+  }, [scheduleId]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
 
     try {
-      const { error } = await supabase.from('PsychE_Counseling_Logs').insert([
-        {
-          student_uuid: studentUuid,
-          counselor_name: counselorName,
-          session_date: new Date().toISOString(),
-          reason,
-          student_response: studentResponse,
-          recommended_action: recommendedAction,
-          file_updated: fileUpdated,
-          notification_sent: notificationSent
-        }
-      ]);
-
-      if (error) throw error;
+      if (scheduleId) {
+        // Update the existing scheduled session
+        const { error } = await supabase.from('PsychE_Counseling_Logs')
+          .update({
+            session_status: 'Completed',
+            session_date: new Date().toISOString(),
+            counselor_name: counselorName,
+            reason: reason,
+            student_response: studentResponse,
+            recommended_action: recommendedAction,
+            file_updated: fileUpdated,
+            notification_sent: notificationSent,
+            interaction_type: interactionType,
+            follow_up_date: followUpDate || null,
+            follow_up_status: followUpDate ? 'Pending' : null
+          })
+          .eq('id', scheduleId);
+        
+        if (error) throw error;
+      } else {
+        // Insert a new log
+        const { error } = await supabase.from('PsychE_Counseling_Logs').insert([
+          {
+            student_uuid: studentUuid,
+            counselor_name: counselorName,
+            session_date: new Date().toISOString(),
+            reason,
+            student_response: studentResponse,
+            recommended_action: recommendedAction,
+            file_updated: fileUpdated,
+            notification_sent: notificationSent,
+            interaction_type: interactionType,
+            follow_up_date: followUpDate || null,
+            follow_up_status: followUpDate ? 'Pending' : null,
+            session_status: 'Completed',
+            scheduled_date: new Date().toISOString().split('T')[0]
+          }
+        ]);
+        if (error) throw error;
+      }
+      
+      // Schedule the next touchpoint if followUpDate is set
+      if (followUpDate) {
+        const followUpIso = new Date(followUpDate).toISOString();
+        await supabase.from('PsychE_Counseling_Logs').insert([
+          {
+            student_uuid: studentUuid,
+            counselor_name: counselorName,
+            session_date: followUpIso,
+            scheduled_date: followUpDate,
+            reason: 'Follow-up for: ' + reason,
+            session_status: 'Scheduled',
+            interaction_type: 'Session'
+          }
+        ]);
+      }
       
       // Success - navigate back to the student profile or dashboard
       navigate(studentUuid ? `/student/${studentUuid}` : '/');
@@ -72,8 +149,8 @@ export const AddLog: React.FC = () => {
           <button onClick={() => navigate(-1)} className="btn btn-secondary mb-4" style={{ padding: '0.25rem 0.5rem', fontSize: '0.875rem', backgroundColor: 'transparent', border: 'none' }}>
             <ArrowLeft size={16} /> Back
           </button>
-          <h1 className="text-h1">Log a Counseling Session</h1>
-          <p className="text-muted">Record details of the session for the student's file.</p>
+          <h1 className="text-h1">{scheduleId ? 'Complete Scheduled Session' : 'Log a Counseling Session'}</h1>
+          <p className="text-muted">{scheduleId ? 'Add your notes and mark this scheduled session as complete.' : 'Record details of the session for the student\'s file.'}</p>
         </div>
       </div>
 
@@ -89,6 +166,7 @@ export const AddLog: React.FC = () => {
                 value={studentUuid}
                 onChange={(e) => setStudentUuid(e.target.value)}
                 style={{ appearance: 'auto' }}
+                disabled={!!scheduleId}
               >
                 <option value="">-- Select a Student --</option>
                 {students.map(s => (
@@ -105,6 +183,19 @@ export const AddLog: React.FC = () => {
                 value={counselorName}
                 onChange={(e) => setCounselorName(e.target.value)}
               />
+            </div>
+            <div style={{ flex: 1 }}>
+              <label className="text-h3" style={{ fontSize: '0.875rem', display: 'block', marginBottom: '0.5rem' }}>Interaction Type</label>
+              <select 
+                className="input"
+                value={interactionType}
+                onChange={(e) => setInteractionType(e.target.value)}
+                style={{ appearance: 'auto' }}
+              >
+                <option value="Session">Session</option>
+                <option value="Quick Note">Quick Note</option>
+                <option value="Parent Contact">Parent Contact</option>
+              </select>
             </div>
           </div>
 
@@ -132,15 +223,58 @@ export const AddLog: React.FC = () => {
             />
           </div>
 
+          <div className="flex gap-4">
+            <div style={{ flex: 1 }}>
+              <label className="text-h3" style={{ fontSize: '0.875rem', display: 'block', marginBottom: '0.5rem' }}>Recommended Action</label>
+              <input 
+                type="text" 
+                className="input" 
+                placeholder="e.g. Discussed study habits, Notified parents"
+                value={recommendedAction}
+                onChange={(e) => setRecommendedAction(e.target.value)}
+              />
+            </div>
+          </div>
+          
           <div>
-            <label className="text-h3" style={{ fontSize: '0.875rem', display: 'block', marginBottom: '0.5rem' }}>Recommended Action / Follow-up</label>
-            <input 
-              type="text" 
-              className="input" 
-              placeholder="e.g. Scheduled follow-up next week, Notified parents"
-              value={recommendedAction}
-              onChange={(e) => setRecommendedAction(e.target.value)}
-            />
+            <label className="text-h3" style={{ fontSize: '0.875rem', display: 'block', marginBottom: '0.5rem' }}>Schedule Next Touchpoint (Optional)</label>
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+              {capacityData.map((day) => {
+                const isFull = day.capacity.booked >= day.capacity.total;
+                const isSelected = followUpDate === day.dateStr;
+                
+                return (
+                  <div 
+                    key={day.dateStr}
+                    onClick={() => {
+                      if (isSelected) {
+                        setFollowUpDate('');
+                      } else {
+                        // Allow overriding by still clicking it, but warn
+                        if (isFull && !window.confirm(`This day is at full capacity (${day.capacity.booked}/${day.capacity.total}). Are you sure you want to overbook?`)) {
+                          return;
+                        }
+                        setFollowUpDate(day.dateStr);
+                      }
+                    }}
+                    style={{
+                      padding: '0.5rem 1rem',
+                      borderRadius: 'var(--radius-md)',
+                      border: `1px solid ${isSelected ? 'var(--color-primary)' : isFull ? 'rgba(239, 68, 68, 0.3)' : 'var(--color-border)'}`,
+                      backgroundColor: isSelected ? 'rgba(94, 106, 210, 0.2)' : isFull ? 'rgba(239, 68, 68, 0.05)' : 'rgba(24, 27, 33, 0.5)',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      minWidth: '90px'
+                    }}
+                  >
+                    <span style={{ fontSize: '0.875rem', fontWeight: isSelected ? 600 : 400, color: isFull && !isSelected ? 'var(--color-danger)' : 'inherit' }}>{day.label}</span>
+                    <span style={{ fontSize: '0.75rem', color: isFull && !isSelected ? 'var(--color-danger)' : 'var(--color-text-muted)' }}>{day.capacity.booked}/{day.capacity.total}</span>
+                  </div>
+                );
+              })}
+            </div>
           </div>
 
           <div className="flex gap-4 items-center mt-2">

@@ -16,8 +16,17 @@ CREATE TABLE "PsychE_Students" (
     email VARCHAR(255),
     course VARCHAR(100),
     enrolled_date DATE,
+    risk_level VARCHAR(20) DEFAULT 'Low',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Create PsychE_Settings table
+CREATE TABLE "PsychE_Settings" (
+    id INT PRIMARY KEY DEFAULT 1,
+    daily_session_capacity INT DEFAULT 7
+);
+
+INSERT INTO "PsychE_Settings" (id, daily_session_capacity) VALUES (1, 7);
 
 -- Create PsychE_Counseling_Logs table
 CREATE TABLE "PsychE_Counseling_Logs" (
@@ -25,11 +34,16 @@ CREATE TABLE "PsychE_Counseling_Logs" (
     student_uuid UUID NOT NULL REFERENCES "PsychE_Students"(id) ON DELETE CASCADE,
     counselor_name VARCHAR(255) NOT NULL,
     session_date TIMESTAMP WITH TIME ZONE NOT NULL,
+    scheduled_date DATE,
+    session_status VARCHAR(20) DEFAULT 'Scheduled',
+    interaction_type VARCHAR(50) DEFAULT 'Session',
     reason VARCHAR(255) NOT NULL,
     student_response TEXT,
     recommended_action TEXT,
     file_updated BOOLEAN DEFAULT FALSE,
     notification_sent BOOLEAN DEFAULT FALSE,
+    follow_up_date TIMESTAMP WITH TIME ZONE,
+    follow_up_status VARCHAR(20) DEFAULT 'Pending',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 

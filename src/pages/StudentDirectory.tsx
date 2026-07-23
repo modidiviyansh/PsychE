@@ -171,6 +171,7 @@ export const StudentDirectory: React.FC = () => {
                     <th style={{ padding: '1rem' }}>Student Name</th>
                     <th style={{ padding: '1rem' }}>ID</th>
                     <th style={{ padding: '1rem' }}>Course</th>
+                    <th style={{ padding: '1rem' }}>Risk Level</th>
                     <th style={{ padding: '1rem' }}>Enrolled</th>
                   </tr>
                 </thead>
@@ -189,12 +190,24 @@ export const StudentDirectory: React.FC = () => {
                       </td>
                       <td style={{ padding: '1rem', color: 'var(--color-text-muted)' }}>{student.student_id}</td>
                       <td style={{ padding: '1rem' }}>{student.course}</td>
+                      <td style={{ padding: '1rem' }}>
+                        <span style={{
+                          fontSize: '0.75rem',
+                          padding: '0.2rem 0.5rem',
+                          backgroundColor: student.risk_level === 'High' ? 'rgba(239, 68, 68, 0.1)' : student.risk_level === 'Medium' ? 'rgba(245, 158, 11, 0.1)' : 'rgba(74, 222, 128, 0.1)',
+                          color: student.risk_level === 'High' ? '#ef4444' : student.risk_level === 'Medium' ? '#f59e0b' : '#4ade80',
+                          borderRadius: '4px',
+                          fontWeight: 600
+                        }}>
+                          {student.risk_level || 'Low'}
+                        </span>
+                      </td>
                       <td style={{ padding: '1rem', color: 'var(--color-text-muted)' }}>{student.enrolled_date ? new Date(student.enrolled_date).toLocaleDateString() : 'N/A'}</td>
                     </tr>
                   ))}
                   {filteredStudents.length === 0 && (
                     <tr>
-                      <td colSpan={5} style={{ padding: '2rem', textAlign: 'center', color: 'var(--color-text-muted)' }}>No students match your filter.</td>
+                      <td colSpan={6} style={{ padding: '2rem', textAlign: 'center', color: 'var(--color-text-muted)' }}>No students match your filter.</td>
                     </tr>
                   )}
                 </tbody>
