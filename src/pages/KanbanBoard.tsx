@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { LayoutDashboard, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { LayoutDashboard, AlertCircle, CheckCircle2, XCircle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { getAvailableCapacityForDateRange } from '../lib/capacity';
@@ -44,7 +44,7 @@ export const KanbanBoard: React.FC = () => {
         .from('PsychE_Counseling_Logs')
         .select(`
           id, scheduled_date, reason, student_uuid,
-          PsychE_Students (full_name, risk_level)
+          PsychE_Students (full_name, risk_level, engagement_modifier)
         `)
         .eq('session_status', 'Scheduled')
         .lte('scheduled_date', endStr)
@@ -144,6 +144,36 @@ export const KanbanBoard: React.FC = () => {
     }
   };
 
+  const handleNoShow = async (e: React.MouseEvent, logId: string, studentUuid: string, currentEngagement: number = 0) => {
+    e.stopPropagation();
+    setLoading(true);
+
+    try {
+      // 1. Mark session as No_Show
+      const { error: logError } = await supabase
+        .from('PsychE_Counseling_Logs')
+        .update({ session_status: 'No_Show' })
+        .eq('id', logId);
+        
+      if (logError) throw logError;
+
+      // 2. Decrement engagement modifier
+      const { error: studentError } = await supabase
+        .from('PsychE_Students')
+        .update({ engagement_modifier: currentEngagement - 1 })
+        .eq('id', studentUuid);
+
+      if (studentError) throw studentError;
+
+      // 3. Refresh board
+      setRefreshKey(prev => prev + 1);
+    } catch (error) {
+      console.error('Error marking no-show:', error);
+      alert('Failed to mark session as No-Show.');
+      setLoading(false);
+    }
+  };
+
   if (loading) {
     return <div className="p-8 text-center text-muted">Loading Planner...</div>;
   }
@@ -166,7 +196,7 @@ export const KanbanBoard: React.FC = () => {
         minHeight: '60vh'
       }}>
         
-        {boardDays.map((day, index) => {
+        {boardDays.map((day) => {
           const isFull = day.capacity.booked >= day.capacity.total;
           
           return (
@@ -273,7 +303,7 @@ export const KanbanBoard: React.FC = () => {
                         </div>
                         <p className="text-muted mb-3" style={{ fontSize: '0.875rem', lineHeight: '1.4' }}>{log.reason}</p>
                         
-                        <div style={{ marginTop: 'auto', paddingTop: '0.5rem', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+                        <div style={{ marginTop: 'auto', paddingTop: '0.5rem', borderTop: '1px solid rgba(255,255,255,0.05)', display: 'flex', gap: '0.5rem', flexDirection: 'column' }}>
                           <button 
                             onClick={(e) => { e.stopPropagation(); navigate(`/add-log?schedule_id=${log.id}`); }}
                             className="btn btn-secondary w-full"
@@ -287,6 +317,22 @@ export const KanbanBoard: React.FC = () => {
                           >
                             <CheckCircle2 size={14} /> Complete Session
                           </button>
+
+                          {day.isOverdue && (
+                            <button 
+                              onClick={(e) => handleNoShow(e, log.id, log.student_uuid, student?.engagement_modifier)}
+                              className="btn btn-secondary w-full"
+                              style={{ 
+                                padding: '0.4rem', fontSize: '0.75rem', 
+                                backgroundColor: 'rgba(239, 68, 68, 0.05)', 
+                                color: 'rgba(239, 68, 68, 0.8)', 
+                                border: '1px solid rgba(239, 68, 68, 0.1)',
+                                display: 'flex', justifyContent: 'center', gap: '0.5rem'
+                              }}
+                            >
+                              <XCircle size={14} /> Mark No-Show
+                            </button>
+                          )}
                         </div>
                       </div>
                     );

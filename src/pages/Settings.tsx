@@ -20,7 +20,7 @@ export const Settings: React.FC = () => {
 
   useEffect(() => {
     async function loadSettings() {
-      const { data, error } = await supabase.from('PsychE_Settings').select('*').single();
+      const { data } = await supabase.from('PsychE_Settings').select('*').single();
       if (data) {
         setCapacity(data.daily_session_capacity || 7);
         if (data.allowed_pins) setAllowedPins(data.allowed_pins);

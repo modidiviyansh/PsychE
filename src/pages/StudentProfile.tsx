@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Printer, Edit2, Calendar, Phone, Mail, BookOpen, ArrowLeft, Eye, EyeOff, User } from 'lucide-react';
+import { Edit2, Calendar, Phone, Mail, BookOpen, ArrowLeft, Eye, EyeOff, User, BrainCircuit, ChevronDown, ChevronUp, FileDown, X } from 'lucide-react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
+import { AssessmentWizard } from '../components/AssessmentWizard';
 
 const container = {
   hidden: { opacity: 0 },
@@ -24,6 +25,23 @@ export const StudentProfile: React.FC = () => {
   // Privacy States
   const [showPhone, setShowPhone] = useState(false);
   const [showEmail, setShowEmail] = useState(false);
+  
+  // Assessment Selection & Wizard States
+
+  
+  // Active Wizard State
+  const [activeAssessmentId, setActiveAssessmentId] = useState<string | null>(null);
+  const [activeDraftLogId, setActiveDraftLogId] = useState<string | undefined>(undefined);
+  const [activeDraftData, setActiveDraftData] = useState<Record<string, any>>({});
+  
+  // Timeline States
+  const [expandedLogs, setExpandedLogs] = useState<Set<string>>(new Set());
+
+  // Date Range Report States
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  const [reportType, setReportType] = useState('custom');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
 
   useEffect(() => {
     async function fetchStudentProfile() {
@@ -45,6 +63,7 @@ export const StudentProfile: React.FC = () => {
           .order('session_date', { ascending: false });
 
         if (logsError) throw logsError;
+        
         setLogs(logsData || []);
 
       } catch (error) {
@@ -57,10 +76,18 @@ export const StudentProfile: React.FC = () => {
     fetchStudentProfile();
   }, [id]);
 
+  const toggleExpand = (logId: string) => {
+    setExpandedLogs(prev => {
+      const next = new Set(prev);
+      if (next.has(logId)) next.delete(logId);
+      else next.add(logId);
+      return next;
+    });
+  };
+
   const maskPhone = (phone: string | null) => {
     if (!phone) return 'N/A';
     if (showPhone) return phone;
-    // Keep first 4 chars (e.g. +91 ) and last 4
     if (phone.length <= 8) return '****';
     return phone.substring(0, 4) + '******' + phone.substring(phone.length - 4);
   };
@@ -75,6 +102,18 @@ export const StudentProfile: React.FC = () => {
     return `${maskedName}@${parts[1]}`;
   };
 
+  const handleGenerateReport = () => {
+    if (reportType === 'allTime') {
+      navigate(`/report?studentId=${id}&allTime=true`);
+    } else {
+      if (!startDate || !endDate) {
+        alert("Please select both start and end dates.");
+        return;
+      }
+      navigate(`/report?studentId=${id}&start=${startDate}&end=${endDate}`);
+    }
+  };
+
   if (loading) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh' }}>
@@ -85,9 +124,7 @@ export const StudentProfile: React.FC = () => {
     );
   }
 
-  if (!student) {
-    return <div style={{ padding: '2rem', textAlign: 'center' }}>Student not found.</div>;
-  }
+  if (!student) return <div style={{ padding: '2rem', textAlign: 'center' }}>Student not found.</div>;
 
   return (
     <motion.div variants={container} initial="hidden" animate="show" style={{ padding: '1rem 0' }}>
@@ -118,9 +155,30 @@ export const StudentProfile: React.FC = () => {
           <p className="text-muted">{student.course} • ID: {student.student_id}</p>
         </div>
         <div className="flex gap-4">
-          <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} className="btn btn-secondary" onClick={() => window.print()}>
-            <Printer size={18} /> Print Record
+          <motion.button 
+            whileHover={{ scale: 1.05 }} 
+            whileTap={{ scale: 0.95 }} 
+            className="btn btn-secondary" 
+            onClick={() => setIsReportModalOpen(true)}
+            style={{ backgroundColor: 'rgba(94, 106, 210, 0.1)', color: 'var(--color-primary)', borderColor: 'transparent' }}
+          >
+            <FileDown size={18} /> Generate Report
           </motion.button>
+
+          <motion.button 
+            whileHover={{ scale: 1.05 }} 
+            whileTap={{ scale: 0.95 }} 
+            className="btn btn-secondary no-print" 
+            onClick={() => {
+              setActiveAssessmentId('daily_mix');
+              setActiveDraftLogId(undefined);
+              setActiveDraftData({});
+            }}
+            style={{ backgroundColor: 'rgba(16, 185, 129, 0.1)', color: '#10b981', borderColor: 'transparent' }}
+          >
+            <BrainCircuit size={18} /> Live Assessment
+          </motion.button>
+          
           <motion.button 
             onClick={() => navigate(`/edit-student/${student.id}`)}
             whileHover={{ scale: 1.05 }} 
@@ -132,18 +190,6 @@ export const StudentProfile: React.FC = () => {
           </motion.button>
         </div>
       </motion.div>
-
-      {/* Official Print Header */}
-      <div className="print-header" style={{ display: 'none' }}>
-        <h1>GCM Convent School</h1>
-        <h2>Confidential Counseling Record</h2>
-        <div className="print-meta">
-          <span><strong>Student:</strong> {student.full_name}</span>
-          <span><strong>ID:</strong> {student.student_id}</span>
-          <span><strong>Course:</strong> {student.course}</span>
-          <span><strong>Printed:</strong> {new Date().toLocaleDateString()}</span>
-        </div>
-      </div>
 
       <div className="bento-grid">
         {/* Personal Details */}
@@ -215,7 +261,6 @@ export const StudentProfile: React.FC = () => {
           </div>
           
           <div style={{ position: 'relative', paddingLeft: '1rem' }}>
-            {/* Vertical Timeline Line */}
             <div className="no-print" style={{ position: 'absolute', left: 0, top: '1rem', bottom: 0, width: '2px', backgroundColor: 'var(--color-border)' }}></div>
 
             <AnimatePresence>
@@ -223,57 +268,213 @@ export const StudentProfile: React.FC = () => {
                 {logs.length === 0 ? (
                   <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-muted py-4">No counseling logs found for this student.</motion.p>
                 ) : (
-                  logs.map((log, index) => (
-                    <motion.div 
-                      key={log.id} 
-                      initial={{ opacity: 0, x: -20 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: index * 0.1, type: 'spring', stiffness: 300 }}
-                      className="print-timeline-item"
-                      style={{ position: 'relative', paddingLeft: '2rem' }}
-                    >
-                      {/* Timeline Dot */}
-                      <div className="no-print" style={{ position: 'absolute', left: '-21px', top: '5px', width: '12px', height: '12px', borderRadius: '50%', backgroundColor: 'var(--color-primary)', border: '2px solid var(--color-surface)' }}></div>
-                      
-                      <div className="flex justify-between items-start mb-3">
-                        <div>
-                          <div className="flex items-center gap-2 mb-1">
-                            <span style={{ fontSize: '0.75rem', padding: '0.1rem 0.5rem', backgroundColor: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: '4px', color: 'var(--color-primary)' }}>
-                              {log.interaction_type || 'Session'}
-                            </span>
+                  logs.map((item, index) => {
+                    const isDraft = item.session_status === 'Draft';
+                    const hasAssessments = item.assessment_data && item.assessment_data.length > 0;
+                    const isExpanded = expandedLogs.has(item.id);
+
+                    return (
+                      <motion.div 
+                        key={item.id} 
+                        initial={{ opacity: 0, x: -20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: index * 0.1, type: 'spring', stiffness: 300 }}
+                        className="print-timeline-item"
+                        style={{ position: 'relative', paddingLeft: '2rem' }}
+                      >
+                        {/* Timeline Dot */}
+                        <div className="no-print" style={{ 
+                          position: 'absolute', left: '-21px', top: '5px', width: '12px', height: '12px', borderRadius: '50%', 
+                          backgroundColor: isDraft ? '#f59e0b' : hasAssessments ? '#10b981' : 'var(--color-primary)', 
+                          border: '2px solid var(--color-surface)' 
+                        }}></div>
+                        
+                        <div className="flex justify-between items-start mb-2">
+                          <div>
+                            <div className="flex items-center gap-2 mb-1">
+                              {isDraft && (
+                                <span style={{ fontSize: '0.75rem', padding: '0.1rem 0.5rem', backgroundColor: 'rgba(245, 158, 11, 0.1)', border: '1px solid rgba(245, 158, 11, 0.2)', borderRadius: '4px', color: '#f59e0b' }}>
+                                  Draft
+                                </span>
+                              )}
+                              <span style={{ fontSize: '0.75rem', padding: '0.1rem 0.5rem', backgroundColor: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: '4px', color: 'var(--color-primary)' }}>
+                                {item.interaction_type || 'Session'}
+                              </span>
+                              {hasAssessments && !isDraft && (
+                                <span style={{ fontSize: '0.75rem', padding: '0.1rem 0.5rem', backgroundColor: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.2)', borderRadius: '4px', color: '#10b981', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                  <BrainCircuit size={10} /> Assessment
+                                </span>
+                              )}
+                            </div>
+                            <h4 className="text-h3" style={{ fontSize: '1.25rem' }}>{item.reason}</h4>
+                            <p className="text-muted" style={{ fontSize: '0.875rem' }}>{item.counselor_name} • {new Date(item.session_date).toLocaleString()}</p>
                           </div>
-                          <h4 className="text-h3" style={{ fontSize: '1.25rem' }}>{log.reason}</h4>
-                          <p className="text-muted" style={{ fontSize: '0.875rem' }}>{log.counselor_name} • {new Date(log.session_date).toLocaleString()}</p>
-                        </div>
-                      </div>
-                      
-                      <div className="print-notes" style={{ backgroundColor: 'var(--color-bg)', padding: '1.25rem', borderRadius: 'var(--radius-md)', marginTop: '0.5rem', border: '1px solid var(--color-border)' }}>
-                        <div className="mb-4">
-                          <p className="text-muted" style={{ fontSize: '0.75rem', textTransform: 'uppercase', marginBottom: '0.5rem', letterSpacing: '0.05em' }}>Session Notes & Student Response</p>
-                          <p className="text-body" style={{ whiteSpace: 'pre-line', lineHeight: '1.6' }}>{log.student_response || 'No notes provided.'}</p>
+
+                          {/* Action Button: Resume Draft or Expand Assessments */}
+                          {isDraft ? (
+                            <button 
+                              onClick={() => {
+                                if (item.interaction_type === 'Session' && (!item.student_response || item.student_response === 'Draft Assessment')) {
+                                  // Navigate to /add-log to resume an embedded draft to ensure clinical notes are filled
+                                  navigate(`/add-log?schedule_id=${item.id}&student=${student.id}`);
+                                } else {
+                                  setActiveAssessmentId('draft'); // Dummy ID to trigger wizard mount
+                                  setActiveDraftLogId(item.id);
+                                }
+                              }}
+                              className="btn btn-secondary"
+                              style={{ padding: '0.25rem 0.75rem', fontSize: '0.875rem', color: '#f59e0b', borderColor: 'transparent', backgroundColor: 'rgba(245, 158, 11, 0.1)' }}
+                            >
+                              Resume Draft
+                            </button>
+                          ) : hasAssessments ? (
+                            <button 
+                              onClick={() => toggleExpand(item.id)}
+                              className="btn btn-secondary"
+                              style={{ padding: '0.25rem 0.75rem', fontSize: '0.875rem', backgroundColor: 'transparent', border: '1px solid var(--color-border)' }}
+                            >
+                              {isExpanded ? <><ChevronUp size={14} /> Collapse</> : <><ChevronDown size={14} /> Expand</>}
+                            </button>
+                          ) : null}
                         </div>
                         
-                        <div className="flex gap-4 flex-wrap">
-                          <div className="print-action" style={{ flex: 1, backgroundColor: 'rgba(74, 222, 128, 0.1)', color: 'var(--color-success)', padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)', fontSize: '0.875rem', fontWeight: 500, minWidth: '200px' }}>
-                            <span style={{ fontSize: '0.75rem', display: 'block', opacity: 0.8, marginBottom: '4px', letterSpacing: '0.05em' }}>RECOMMENDED ACTION</span>
-                            {log.recommended_action || 'None'}
+                        {/* Collapsed Assessment View */}
+                        {!isDraft && hasAssessments && !isExpanded && (
+                          <div style={{ backgroundColor: 'rgba(16, 185, 129, 0.05)', padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)', border: '1px solid rgba(16, 185, 129, 0.2)', display: 'flex', flexWrap: 'wrap', gap: '1rem' }}>
+                            {item.assessment_data.map((a: any, i: number) => {
+                              const rawScoreValues = Object.values(a.responses) as number[];
+                              const totalScore = rawScoreValues.reduce((sum, val) => sum + (val || 0), 0);
+                              const maxPossible = a.type === 'COMPE' ? Object.keys(a.responses).length * 4 : 'N/A';
+                              return (
+                                <span key={i} style={{ fontSize: '0.875rem', fontWeight: 500, color: '#10b981' }}>
+                                  {a.title}: {totalScore}{maxPossible !== 'N/A' ? `/${maxPossible}` : ''}
+                                </span>
+                              );
+                            })}
                           </div>
-                          {log.follow_up_date && (
-                            <div className="print-action" style={{ flex: 1, backgroundColor: 'rgba(245, 158, 11, 0.1)', color: '#f59e0b', padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)', fontSize: '0.875rem', fontWeight: 500, minWidth: '200px' }}>
-                              <span style={{ fontSize: '0.75rem', display: 'block', opacity: 0.8, marginBottom: '4px', letterSpacing: '0.05em' }}>FOLLOW-UP ({log.follow_up_status || 'Pending'})</span>
-                              {new Date(log.follow_up_date).toLocaleDateString()}
+                        )}
+
+                        {/* Expanded Notes and Receipt */}
+                        {(!hasAssessments || isExpanded) && !isDraft && (
+                          <motion.div 
+                            initial={{ opacity: 0, height: 0 }} 
+                            animate={{ opacity: 1, height: 'auto' }} 
+                            className="print-notes" 
+                            style={{ backgroundColor: 'var(--color-bg)', padding: '1.25rem', borderRadius: 'var(--radius-md)', marginTop: '0.5rem', border: '1px solid var(--color-border)', overflow: 'hidden' }}
+                          >
+                            <div className="mb-4">
+                              <p className="text-muted" style={{ fontSize: '0.75rem', textTransform: 'uppercase', marginBottom: '0.5rem', letterSpacing: '0.05em' }}>Session Notes & Student Response</p>
+                              <p className="text-body" style={{ whiteSpace: 'pre-line', lineHeight: '1.6' }}>{item.student_response || 'No notes provided.'}</p>
                             </div>
-                          )}
-                        </div>
-                      </div>
-                    </motion.div>
-                  ))
+                            
+                            {hasAssessments && (
+                              <div className="mb-4">
+                                <p className="text-muted" style={{ fontSize: '0.75rem', textTransform: 'uppercase', marginBottom: '0.5rem', letterSpacing: '0.05em' }}>Full Assessment Receipt</p>
+                                {item.assessment_data.map((a: any, i: number) => (
+                                  <div key={i} style={{ backgroundColor: 'rgba(0,0,0,0.1)', padding: '1rem', borderRadius: 'var(--radius-sm)', marginBottom: '0.5rem' }}>
+                                    <h5 style={{ fontSize: '0.875rem', color: 'var(--color-primary)', marginBottom: '0.75rem' }}>{a.title}</h5>
+                                    {Object.entries(a.responses).map(([q, ans]: any, j) => (
+                                      <div key={j} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.5rem', backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: '4px', fontSize: '0.875rem', marginBottom: '2px' }}>
+                                        <span style={{ color: 'var(--color-text-muted)', flex: 1, paddingRight: '1rem' }}>{q}</span>
+                                        <strong style={{ color: '#10b981', minWidth: '30px', textAlign: 'right' }}>{ans}</strong>
+                                      </div>
+                                    ))}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+
+                            <div className="flex gap-4 flex-wrap">
+                              <div className="print-action" style={{ flex: 1, backgroundColor: 'rgba(74, 222, 128, 0.1)', color: 'var(--color-success)', padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)', fontSize: '0.875rem', fontWeight: 500, minWidth: '200px' }}>
+                                <span style={{ fontSize: '0.75rem', display: 'block', opacity: 0.8, marginBottom: '4px', letterSpacing: '0.05em' }}>RECOMMENDED ACTION</span>
+                                {item.recommended_action || 'None'}
+                              </div>
+                              {item.follow_up_date && (
+                                <div className="print-action" style={{ flex: 1, backgroundColor: 'rgba(245, 158, 11, 0.1)', color: '#f59e0b', padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)', fontSize: '0.875rem', fontWeight: 500, minWidth: '200px' }}>
+                                  <span style={{ fontSize: '0.75rem', display: 'block', opacity: 0.8, marginBottom: '4px', letterSpacing: '0.05em' }}>FOLLOW-UP ({item.follow_up_status || 'Pending'})</span>
+                                  {new Date(item.follow_up_date).toLocaleDateString()}
+                                </div>
+                              )}
+                            </div>
+                          </motion.div>
+                        )}
+                      </motion.div>
+                    )
+                  })
                 )}
               </div>
             </AnimatePresence>
           </div>
         </motion.div>
       </div>
+
+      {/* Date Range Report Modal */}
+      {isReportModalOpen && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)' }}>
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bento-card"
+            style={{ width: '100%', maxWidth: '400px', padding: '2rem', backgroundColor: 'var(--color-surface)', border: '1px solid var(--color-border)', position: 'relative' }}
+          >
+            <button onClick={() => setIsReportModalOpen(false)} style={{ position: 'absolute', top: '1rem', right: '1rem', background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)' }}>
+              <X size={20} />
+            </button>
+            <h3 className="text-h2 mb-4" style={{ fontSize: '1.25rem' }}>Generate Statement</h3>
+            <p className="text-muted mb-6" style={{ fontSize: '0.875rem' }}>Select your export preferences.</p>
+            
+            <div className="mb-6" style={{ display: 'flex', gap: '1rem' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.875rem', cursor: 'pointer' }}>
+                <input type="radio" name="reportType" value="custom" checked={reportType === 'custom'} onChange={() => setReportType('custom')} />
+                Custom Date Range
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.875rem', cursor: 'pointer' }}>
+                <input type="radio" name="reportType" value="allTime" checked={reportType === 'allTime'} onChange={() => setReportType('allTime')} />
+                Full Profile (All Time)
+              </label>
+            </div>
+
+            {reportType === 'custom' && (
+              <>
+                <div className="mb-4">
+                  <label style={{ display: 'block', fontSize: '0.875rem', marginBottom: '0.5rem' }}>Start Date</label>
+                  <input type="date" className="input" style={{ width: '100%' }} value={startDate} onChange={e => setStartDate(e.target.value)} />
+                </div>
+                <div className="mb-6">
+                  <label style={{ display: 'block', fontSize: '0.875rem', marginBottom: '0.5rem' }}>End Date</label>
+                  <input type="date" className="input" style={{ width: '100%' }} value={endDate} onChange={e => setEndDate(e.target.value)} />
+                </div>
+              </>
+            )}
+
+            <button onClick={handleGenerateReport} className="btn btn-primary" style={{ width: '100%', padding: '0.75rem' }}>
+              Compile Report
+            </button>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Universal Wizard */}
+      {activeAssessmentId && (
+        <AssessmentWizard
+          moduleId={activeAssessmentId === 'draft' || activeAssessmentId === 'daily_mix' ? undefined : activeAssessmentId}
+          studentUuid={student.id}
+          counselorName="Counselor" // Ideally from auth context
+          isQuickAssessment={!activeDraftLogId}
+          existingLogId={activeDraftLogId}
+          existingData={activeDraftData}
+          onComplete={() => {
+            setActiveAssessmentId(null);
+            setActiveDraftLogId(undefined);
+            setActiveDraftData({});
+            window.location.reload();
+          }}
+          onClose={() => {
+            setActiveAssessmentId(null);
+            window.location.reload(); // Refresh to show draft in timeline
+          }}
+        />
+      )}
     </motion.div>
   );
 };

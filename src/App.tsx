@@ -10,6 +10,7 @@ import { Settings } from './pages/Settings';
 import { KanbanBoard } from './pages/KanbanBoard';
 import { BulkSchedule } from './pages/BulkSchedule';
 import { PinScreen } from './components/PinScreen';
+import { ReportExport } from './pages/ReportExport';
 
 export default function App() {
   return (
@@ -31,6 +32,7 @@ export default function App() {
           <Route path="kanban" element={<KanbanBoard />} />
           <Route path="bulk-schedule" element={<BulkSchedule />} />
         </Route>
+        <Route path="/report" element={<PinScreen><ReportExport /></PinScreen>} />
       </Routes>
     </BrowserRouter>
   );

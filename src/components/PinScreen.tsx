@@ -16,8 +16,7 @@ export const PinScreen: React.FC<PinScreenProps> = ({ children }) => {
 
   useEffect(() => {
     async function initAuth() {
-      // Fetch allowed pins from settings
-      const { data, error } = await supabase.from('PsychE_Settings').select('allowed_pins').single();
+      const { data } = await supabase.from('PsychE_Settings').select('allowed_pins').single();
       if (data && data.allowed_pins) {
         setAllowedPins(data.allowed_pins.split(',').map((p: string) => p.trim()));
       }

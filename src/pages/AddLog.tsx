@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
-import { ArrowLeft, Save } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { ArrowLeft, Save, Sparkles, CheckCircle, Calendar as CalendarIcon, FileText } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { getAvailableCapacityForDateRange } from '../lib/capacity';
+import { AssessmentWizard } from '../components/AssessmentWizard';
 
 const container = {
   hidden: { opacity: 0 },
@@ -17,36 +18,66 @@ export const AddLog: React.FC = () => {
   const scheduleId = searchParams.get('schedule_id');
 
   const [students, setStudents] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
   
   // Form State
   const [studentUuid, setStudentUuid] = useState(prefilledStudentId || '');
-  const [counselorName, setCounselorName] = useState('Dr. Sarah Smith'); // Default for now
+  const [counselorName, setCounselorName] = useState('Counselor');
+  const [interactionType, setInteractionType] = useState('Session');
   const [reason, setReason] = useState('');
   const [studentResponse, setStudentResponse] = useState('');
   const [recommendedAction, setRecommendedAction] = useState('');
-  const [fileUpdated, setFileUpdated] = useState(true);
-  const [notificationSent, setNotificationSent] = useState(false);
-  const [interactionType, setInteractionType] = useState('Session');
   const [followUpDate, setFollowUpDate] = useState('');
-
+  
+  // Custom Date Picker State
+  const [useCustomDate, setUseCustomDate] = useState(false);
   const [capacityData, setCapacityData] = useState<any[]>([]);
 
+  // Smart Engine State
+  const [masterLibrary, setMasterLibrary] = useState<any[]>([]);
+  const [matchedAssessments, setMatchedAssessments] = useState<string[]>([]);
+  const [activeWizardId, setActiveWizardId] = useState<string | null>(null); // To manage full-screen wizard
+  const [cooldownDays, setCooldownDays] = useState(30);
+  const [pastAssessments, setPastAssessments] = useState<any[]>([]);
+  
+  // Wizard Progress State
+  const [completedAssessments, setCompletedAssessments] = useState<Set<string>>(new Set());
+  const [draftLogId, setDraftLogId] = useState<string | null>(null);
+
   useEffect(() => {
-    async function fetchStudents() {
-      const { data } = await supabase.from('PsychE_Students').select('id, full_name, student_id');
-      if (data) setStudents(data);
-    }
-    async function fetchScheduledLog() {
-      if (!scheduleId) return;
-      const { data } = await supabase.from('PsychE_Counseling_Logs').select('*').eq('id', scheduleId).single();
-      if (data) {
-        setStudentUuid(data.student_uuid);
-        setReason(data.reason);
-        setCounselorName(data.counselor_name || 'Dr. Sarah Smith');
+    async function fetchInitialData() {
+      // 1. Fetch Students
+      const { data: sData } = await supabase.from('PsychE_Students').select('id, full_name, student_id');
+      if (sData) setStudents(sData);
+
+      // 2. Fetch Scheduled or Draft Log Info
+      if (scheduleId) {
+        const { data: schData } = await supabase.from('PsychE_Counseling_Logs').select('*').eq('id', scheduleId).single();
+        if (schData) {
+          setStudentUuid(schData.student_uuid);
+          setReason(schData.reason);
+          setCounselorName(schData.counselor_name || 'Counselor');
+          if (schData.session_status === 'Draft') {
+            if (schData.interaction_type) setInteractionType(schData.interaction_type);
+            if (schData.student_response && schData.student_response !== 'Draft Assessment') setStudentResponse(schData.student_response);
+            if (schData.recommended_action) setRecommendedAction(schData.recommended_action);
+            if (schData.follow_up_date) setFollowUpDate(schData.follow_up_date);
+            setDraftLogId(schData.id);
+          }
+        }
       }
-    }
-    async function fetchCapacity() {
+
+      // 3. Fetch Master Library
+      const { data: mlData } = await supabase.from('PsychE_Assessment_Master').select('*');
+      if (mlData) setMasterLibrary(mlData);
+
+      // 4. Fetch Config
+      const { data: configData } = await supabase.from('PsychE_Settings').select('assessment_cooldown_days').limit(1).single();
+      if (configData && configData.assessment_cooldown_days) {
+        setCooldownDays(configData.assessment_cooldown_days);
+      }
+
+      // 5. Fetch Capacity
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       const cap = await getAvailableCapacityForDateRange(today, 7);
@@ -64,58 +95,125 @@ export const AddLog: React.FC = () => {
       }
       setCapacityData(arr);
     }
-    fetchStudents();
-    fetchScheduledLog();
-    fetchCapacity();
+    fetchInitialData();
   }, [scheduleId]);
+
+  // Fetch past assessments when student changes
+  useEffect(() => {
+    async function fetchPastAssessments() {
+      if (!studentUuid) return;
+      const { data } = await supabase
+        .from('PsychE_Counseling_Logs')
+        .select('session_date, assessment_data')
+        .eq('student_uuid', studentUuid)
+        .not('assessment_data', 'is', null);
+
+      if (data) setPastAssessments(data);
+    }
+    fetchPastAssessments();
+  }, [studentUuid]);
+
+  // Deterministic Suggestion Logic (Smart Engine)
+  const handleIntakeChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const text = e.target.value;
+    setReason(text);
+
+    if (!text.trim()) {
+      setMatchedAssessments([]);
+      return;
+    }
+
+    const cleanText = text.toLowerCase().replace(/[^\w\s]/gi, '');
+    const words = new Set(cleanText.split(' '));
+    
+    const newMatches = new Set<string>();
+    const now = new Date();
+
+    masterLibrary.forEach(assessment => {
+      let isMatch = false;
+      for (const kw of assessment.keywords) {
+        if (words.has(kw.toLowerCase())) {
+          isMatch = true;
+          break;
+        }
+      }
+
+      if (isMatch) {
+        // Smart Engine Cooldown Check
+        const isCoolingDown = pastAssessments.some(log => {
+          const taken = new Date(log.session_date);
+          const diffDays = (now.getTime() - taken.getTime()) / (1000 * 3600 * 24);
+          
+          if (diffDays <= cooldownDays) {
+            return log.assessment_data.some((a: any) => a.assessment_id === assessment.id);
+          }
+          return false;
+        });
+
+        if (!isCoolingDown) {
+          newMatches.add(assessment.id);
+        }
+      }
+    });
+    
+    setMatchedAssessments(Array.from(newMatches));
+  };
+
+
+
+  const handleEmbeddedWizardComplete = (payload: any) => {
+    if (payload.logId) {
+      setDraftLogId(payload.logId);
+    }
+    setCompletedAssessments(prev => {
+      const next = new Set(prev);
+      next.add(payload.moduleId || 'daily_mix');
+      return next;
+    });
+    setActiveWizardId(null);
+  };
+
+
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
-
+    setSaving(true);
+    
     try {
-      if (scheduleId) {
-        // Update the existing scheduled session
+      let finalLogId = draftLogId || scheduleId;
+      
+      const logUpdateData = {
+        session_status: 'Completed',
+        session_date: new Date().toISOString(),
+        counselor_name: counselorName,
+        reason: reason,
+        student_response: studentResponse,
+        recommended_action: recommendedAction,
+        interaction_type: interactionType,
+        follow_up_date: followUpDate || null,
+        follow_up_status: followUpDate ? 'Pending' : null,
+      };
+
+      if (finalLogId) {
+        // Pre-emptive Draft Commit path: update the existing draft/schedule log
         const { error } = await supabase.from('PsychE_Counseling_Logs')
-          .update({
-            session_status: 'Completed',
-            session_date: new Date().toISOString(),
-            counselor_name: counselorName,
-            reason: reason,
-            student_response: studentResponse,
-            recommended_action: recommendedAction,
-            file_updated: fileUpdated,
-            notification_sent: notificationSent,
-            interaction_type: interactionType,
-            follow_up_date: followUpDate || null,
-            follow_up_status: followUpDate ? 'Pending' : null
-          })
-          .eq('id', scheduleId);
-        
+          .update(logUpdateData)
+          .eq('id', finalLogId);
         if (error) throw error;
       } else {
-        // Insert a new log
-        const { error } = await supabase.from('PsychE_Counseling_Logs').insert([
+        // No embedded assessments were done, create a brand new log
+        const { data, error } = await supabase.from('PsychE_Counseling_Logs').insert([
           {
             student_uuid: studentUuid,
-            counselor_name: counselorName,
-            session_date: new Date().toISOString(),
-            reason,
-            student_response: studentResponse,
-            recommended_action: recommendedAction,
-            file_updated: fileUpdated,
-            notification_sent: notificationSent,
-            interaction_type: interactionType,
-            follow_up_date: followUpDate || null,
-            follow_up_status: followUpDate ? 'Pending' : null,
-            session_status: 'Completed',
-            scheduled_date: new Date().toISOString().split('T')[0]
+            scheduled_date: new Date().toISOString().split('T')[0],
+            ...logUpdateData
           }
-        ]);
+        ]).select().single();
         if (error) throw error;
+        finalLogId = data.id;
       }
       
-      // Schedule the next touchpoint if followUpDate is set
+      // 3. Handle Auto-Scheduling for follow-up
       if (followUpDate) {
         const followUpIso = new Date(followUpDate).toISOString();
         await supabase.from('PsychE_Counseling_Logs').insert([
@@ -124,39 +222,39 @@ export const AddLog: React.FC = () => {
             counselor_name: counselorName,
             session_date: followUpIso,
             scheduled_date: followUpDate,
-            reason: 'Follow-up for: ' + reason,
+            reason: 'Follow-up for: ' + (reason || 'General Session'),
             session_status: 'Scheduled',
             interaction_type: 'Session'
           }
         ]);
       }
       
-      // Success - navigate back to the student profile or dashboard
       navigate(studentUuid ? `/student/${studentUuid}` : '/');
     } catch (error) {
       console.error('Error saving log:', error);
       alert('Failed to save log. See console for details.');
     } finally {
-      setLoading(false);
+      setSaving(false);
     }
   };
 
   return (
-    <motion.div variants={container} initial="hidden" animate="show" style={{ padding: '1rem 0', maxWidth: '800px', margin: '0 auto' }}>
+    <motion.div variants={container} initial="hidden" animate="show" style={{ padding: '1rem 0', maxWidth: '800px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
       
-      <div className="flex justify-between items-center mb-6">
+      <div className="flex justify-between items-center">
         <div>
-          <button onClick={() => navigate(-1)} className="btn btn-secondary mb-4" style={{ padding: '0.25rem 0.5rem', fontSize: '0.875rem', backgroundColor: 'transparent', border: 'none' }}>
+          <button onClick={() => navigate(-1)} className="btn btn-secondary mb-2" style={{ padding: '0.25rem 0.5rem', fontSize: '0.875rem', backgroundColor: 'transparent', border: 'none' }}>
             <ArrowLeft size={16} /> Back
           </button>
           <h1 className="text-h1">{scheduleId ? 'Complete Scheduled Session' : 'Log a Counseling Session'}</h1>
-          <p className="text-muted">{scheduleId ? 'Add your notes and mark this scheduled session as complete.' : 'Record details of the session for the student\'s file.'}</p>
+          <p className="text-muted">Record session details. The Smart Engine will suggest tests as you type.</p>
         </div>
       </div>
 
-      <motion.div className="bento-card" style={{ padding: '2rem' }}>
-        <form onSubmit={handleSubmit} className="flex" style={{ flexDirection: 'column', gap: '1.5rem' }}>
-          
+      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+        
+        {/* TOP BENTO: Meta Info */}
+        <motion.div className="bento-card" style={{ padding: '2rem' }}>
           <div className="flex gap-4">
             <div style={{ flex: 1 }}>
               <label className="text-h3" style={{ fontSize: '0.875rem', display: 'block', marginBottom: '0.5rem' }}>Select Student *</label>
@@ -198,34 +296,113 @@ export const AddLog: React.FC = () => {
               </select>
             </div>
           </div>
+        </motion.div>
 
+        {/* MIDDLE BENTO: Intake & Trigger */}
+        <motion.div className="bento-card" style={{ padding: '2rem' }}>
           <div>
-            <label className="text-h3" style={{ fontSize: '0.875rem', display: 'block', marginBottom: '0.5rem' }}>Primary Reason / Topic *</label>
-            <input 
-              required
-              type="text" 
-              className="input" 
-              placeholder="e.g. Academic Stress, Career Guidance, Peer Conflict"
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-            />
-          </div>
-
-          <div>
-            <label className="text-h3" style={{ fontSize: '0.875rem', display: 'block', marginBottom: '0.5rem' }}>Session Notes & Student Response</label>
+            <label className="text-h3" style={{ fontSize: '1rem', display: 'block', marginBottom: '0.5rem' }}>Primary Reason / Intake Notes *</label>
             <textarea 
+              required
               className="input" 
               rows={4}
-              placeholder="Detail the discussion and the student's reaction..."
-              value={studentResponse}
-              onChange={(e) => setStudentResponse(e.target.value)}
+              placeholder="e.g. Student is feeling extremely anxious about upcoming exams..."
+              value={reason}
+              onChange={handleIntakeChange}
               style={{ resize: 'vertical' }}
             />
           </div>
 
-          <div className="flex gap-4">
-            <div style={{ flex: 1 }}>
-              <label className="text-h3" style={{ fontSize: '0.875rem', display: 'block', marginBottom: '0.5rem' }}>Recommended Action</label>
+          {/* ASSESSMENT AREA */}
+          <AnimatePresence>
+            {matchedAssessments.length > 0 && !activeWizardId && (
+              <motion.div 
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                style={{ marginTop: '1.5rem' }}
+              >
+                <div style={{ backgroundColor: 'rgba(94, 106, 210, 0.05)', border: '1px solid rgba(94, 106, 210, 0.2)', borderRadius: 'var(--radius-md)', padding: '1rem' }}>
+                  <h4 className="text-h3 flex items-center gap-2 mb-3" style={{ fontSize: '0.875rem', color: 'var(--color-primary)' }}>
+                    <Sparkles size={16} /> Smart Suggestions
+                  </h4>
+                  <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                    {matchedAssessments.map(id => {
+                      const assessment = masterLibrary.find(a => a.id === id);
+                      if (!assessment) return null;
+                      const isCompleted = completedAssessments.has(id);
+
+                      return (
+                        <button
+                          key={id}
+                          type="button"
+                          onClick={() => {
+                            if (isCompleted) {
+                              // Un-complete to edit
+                              setCompletedAssessments(prev => {
+                                const next = new Set(prev);
+                                next.delete(id);
+                                return next;
+                              });
+                            }
+                            setActiveWizardId(id);
+                          }}
+                          style={{
+                            padding: '0.5rem 1rem',
+                            borderRadius: '20px',
+                            backgroundColor: isCompleted ? 'rgba(16, 185, 129, 0.1)' : 'var(--color-surface)',
+                            border: `1px solid ${isCompleted ? 'rgba(16, 185, 129, 0.3)' : 'var(--color-border)'}`,
+                            color: isCompleted ? '#10b981' : 'inherit',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.5rem',
+                            cursor: 'pointer',
+                            fontSize: '0.875rem',
+                            transition: 'all 0.2s'
+                          }}
+                        >
+                          {isCompleted ? <CheckCircle size={14} /> : <FileText size={14} className="text-muted" />}
+                          {assessment.title}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* UNIVERSAL WIZARD OVERLAY */}
+          {activeWizardId && (
+            <AssessmentWizard
+              moduleId={activeWizardId}
+              studentUuid={studentUuid}
+              counselorName={counselorName}
+              existingLogId={draftLogId || scheduleId || undefined}
+              onEmbeddedComplete={handleEmbeddedWizardComplete}
+              onComplete={() => {}}
+              onClose={() => setActiveWizardId(null)}
+            />
+          )}
+        </motion.div>
+
+        {/* BOTTOM BENTO: Notes & Action */}
+        <motion.div className="bento-card" style={{ padding: '2rem' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+            <div>
+              <label className="text-h3" style={{ fontSize: '1rem', display: 'block', marginBottom: '0.5rem' }}>Summary Notes & Student Response</label>
+              <textarea 
+                className="input" 
+                rows={4}
+                placeholder="Synthesize the session, noting student reactions and overall takeaways..."
+                value={studentResponse}
+                onChange={(e) => setStudentResponse(e.target.value)}
+                style={{ resize: 'vertical' }}
+              />
+            </div>
+
+            <div>
+              <label className="text-h3" style={{ fontSize: '1rem', display: 'block', marginBottom: '0.5rem' }}>Recommended Action</label>
               <input 
                 type="text" 
                 className="input" 
@@ -234,85 +411,93 @@ export const AddLog: React.FC = () => {
                 onChange={(e) => setRecommendedAction(e.target.value)}
               />
             </div>
-          </div>
-          
-          <div>
-            <label className="text-h3" style={{ fontSize: '0.875rem', display: 'block', marginBottom: '0.5rem' }}>Schedule Next Touchpoint (Optional)</label>
-            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-              {capacityData.map((day) => {
-                const isFull = day.capacity.booked >= day.capacity.total;
-                const isSelected = followUpDate === day.dateStr;
-                
-                return (
-                  <div 
-                    key={day.dateStr}
-                    onClick={() => {
-                      if (isSelected) {
-                        setFollowUpDate('');
-                      } else {
-                        // Allow overriding by still clicking it, but warn
-                        if (isFull && !window.confirm(`This day is at full capacity (${day.capacity.booked}/${day.capacity.total}). Are you sure you want to overbook?`)) {
-                          return;
-                        }
-                        setFollowUpDate(day.dateStr);
-                      }
-                    }}
-                    style={{
-                      padding: '0.5rem 1rem',
-                      borderRadius: 'var(--radius-md)',
-                      border: `1px solid ${isSelected ? 'var(--color-primary)' : isFull ? 'rgba(239, 68, 68, 0.3)' : 'var(--color-border)'}`,
-                      backgroundColor: isSelected ? 'rgba(94, 106, 210, 0.2)' : isFull ? 'rgba(239, 68, 68, 0.05)' : 'rgba(24, 27, 33, 0.5)',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      minWidth: '90px'
-                    }}
-                  >
-                    <span style={{ fontSize: '0.875rem', fontWeight: isSelected ? 600 : 400, color: isFull && !isSelected ? 'var(--color-danger)' : 'inherit' }}>{day.label}</span>
-                    <span style={{ fontSize: '0.75rem', color: isFull && !isSelected ? 'var(--color-danger)' : 'var(--color-text-muted)' }}>{day.capacity.booked}/{day.capacity.total}</span>
-                  </div>
-                );
-              })}
+            
+            {/* ACTION / CUSTOM DATE PICKER */}
+            <div>
+              <div className="flex justify-between items-center mb-3">
+                <label className="text-h3" style={{ fontSize: '1rem', margin: 0 }}>Schedule Next Touchpoint (Optional)</label>
+                <button 
+                  type="button"
+                  onClick={() => {
+                    setUseCustomDate(!useCustomDate);
+                    setFollowUpDate(''); // Reset when switching
+                  }}
+                  style={{ background: 'transparent', border: 'none', color: 'var(--color-primary)', fontSize: '0.875rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.25rem' }}
+                >
+                  <CalendarIcon size={14} /> {useCustomDate ? 'Use Capacity Grid' : 'Select Custom Date'}
+                </button>
+              </div>
+
+              {useCustomDate ? (
+                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                  <input 
+                    type="date" 
+                    className="input" 
+                    style={{ width: '100%', padding: '0.75rem' }}
+                    value={followUpDate}
+                    onChange={(e) => setFollowUpDate(e.target.value)}
+                    min={new Date().toISOString().split('T')[0]}
+                  />
+                </motion.div>
+              ) : (
+                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))', gap: '0.5rem' }}>
+                  {capacityData.map((day) => {
+                    const isFull = day.capacity.booked >= day.capacity.total;
+                    const isSelected = followUpDate === day.dateStr;
+                    
+                    return (
+                      <div 
+                        key={day.dateStr}
+                        onClick={() => {
+                          if (isSelected) setFollowUpDate('');
+                          else {
+                            if (isFull && !window.confirm(`This day is at full capacity (${day.capacity.booked}/${day.capacity.total}). Overbook?`)) return;
+                            setFollowUpDate(day.dateStr);
+                          }
+                        }}
+                        style={{
+                          padding: '0.75rem',
+                          borderRadius: 'var(--radius-md)',
+                          border: `1px solid ${isSelected ? 'var(--color-primary)' : isFull ? 'rgba(239, 68, 68, 0.3)' : 'var(--color-border)'}`,
+                          backgroundColor: isSelected ? 'rgba(94, 106, 210, 0.2)' : isFull ? 'rgba(239, 68, 68, 0.05)' : 'rgba(24, 27, 33, 0.5)',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          textAlign: 'center'
+                        }}
+                      >
+                        <span style={{ fontSize: '0.875rem', fontWeight: isSelected ? 600 : 400, color: isFull && !isSelected ? 'var(--color-danger)' : 'inherit' }}>{day.label}</span>
+                        <span style={{ fontSize: '0.75rem', color: isFull && !isSelected ? 'var(--color-danger)' : 'var(--color-text-muted)', marginTop: '4px' }}>{day.capacity.booked}/{day.capacity.total}</span>
+                      </div>
+                    );
+                  })}
+                </motion.div>
+              )}
             </div>
-          </div>
 
-          <div className="flex gap-4 items-center mt-2">
-            <label className="flex items-center gap-2" style={{ cursor: 'pointer' }}>
-              <input 
-                type="checkbox" 
-                checked={fileUpdated}
-                onChange={(e) => setFileUpdated(e.target.checked)}
-                style={{ width: '16px', height: '16px' }}
-              />
-              <span className="text-body" style={{ fontSize: '0.875rem' }}>Physical File Updated</span>
-            </label>
-
-            <label className="flex items-center gap-2" style={{ cursor: 'pointer' }}>
-              <input 
-                type="checkbox" 
-                checked={notificationSent}
-                onChange={(e) => setNotificationSent(e.target.checked)}
-                style={{ width: '16px', height: '16px' }}
-              />
-              <span className="text-body" style={{ fontSize: '0.875rem' }}>Notification Sent to Guardian</span>
-            </label>
           </div>
+        </motion.div>
 
-          <div className="flex justify-end mt-4">
-            <motion.button 
-              type="submit"
-              disabled={loading}
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              className="btn btn-primary"
-              style={{ background: 'linear-gradient(135deg, var(--color-primary), #8b5cf6)', border: 'none', padding: '0.75rem 2rem' }}
-            >
-              {loading ? 'Saving...' : <><Save size={18} /> Save Record</>}
-            </motion.button>
-          </div>
-        </form>
-      </motion.div>
+        <div className="flex justify-end mt-4 mb-12">
+          <motion.button 
+            type="submit"
+            disabled={saving || !reason || activeWizardId !== null}
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            className="btn btn-primary"
+            style={{ 
+              background: 'linear-gradient(135deg, var(--color-primary), #8b5cf6)', 
+              border: 'none', 
+              padding: '1rem 3rem',
+              fontSize: '1.1rem',
+              opacity: (saving || !reason || activeWizardId !== null) ? 0.5 : 1 
+            }}
+          >
+            {saving ? 'Saving...' : <><Save size={20} /> Save Session Record</>}
+          </motion.button>
+        </div>
+      </form>
     </motion.div>
   );
 };
