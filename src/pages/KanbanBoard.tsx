@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { LayoutDashboard, AlertCircle, CheckCircle2, XCircle } from 'lucide-react';
+import { LayoutDashboard, AlertCircle, CheckCircle2, XCircle, Trash, Calendar, Check } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { getAvailableCapacityForDateRange } from '../lib/capacity';
+import { isOverdue } from '../utils/dateFormatter';
 
 const container = {
   hidden: { opacity: 0 },
@@ -18,12 +19,18 @@ const item = {
 export const KanbanBoard: React.FC = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
+  const [rescheduleId, setRescheduleId] = useState<string | null>(null);
+  const [newDate, setNewDate] = useState('');
   
   // Array of next 7 days info (date object, formatted string, capacity info, logs array)
   const [boardDays, setBoardDays] = useState<any[]>([]);
 
   // 1. Trigger refetch logic
   const [refreshKey, setRefreshKey] = useState(0);
+
+  useEffect(() => {
+    document.title = "PsychE | Planner";
+  }, []);
 
   useEffect(() => {
     async function fetchBoardData() {
@@ -33,7 +40,6 @@ export const KanbanBoard: React.FC = () => {
       const endDate = new Date(today);
       endDate.setDate(endDate.getDate() + 6);
       
-      const startStr = today.toISOString().split('T')[0];
       const endStr = endDate.toISOString().split('T')[0];
 
       // 1. Fetch Capacity Data
@@ -57,8 +63,8 @@ export const KanbanBoard: React.FC = () => {
       // 3. Assemble columns
       const daysArray = [];
       
-      // -- OVERDUE COLUMN --
-      const overdueLogs = (logsData || []).filter(log => log.scheduled_date < startStr);
+      // -- OVERDUE COLUMN -- (Query Synchronization BUG-009)
+      const overdueLogs = (logsData || []).filter(log => isOverdue(log.scheduled_date));
       if (overdueLogs.length > 0) {
         daysArray.push({
           dateStr: 'overdue',
@@ -174,6 +180,43 @@ export const KanbanBoard: React.FC = () => {
     }
   };
 
+  const handleDeleteSession = async (e: React.MouseEvent, logId: string) => {
+    e.stopPropagation();
+    if (!window.confirm("Are you sure you want to permanently delete this session? This action cannot be undone.")) return;
+
+    setLoading(true);
+    try {
+      const { error } = await supabase.from('PsychE_Counseling_Logs').delete().eq('id', logId);
+      if (error) throw error;
+      setRefreshKey(prev => prev + 1);
+    } catch (error) {
+      console.error('Error deleting session:', error);
+      alert('Failed to delete session.');
+      setLoading(false);
+    }
+  };
+
+  const handleReschedule = async (e: React.MouseEvent, logId: string) => {
+    e.stopPropagation();
+    if (!newDate) {
+      alert("Please select a new date.");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const { error } = await supabase.from('PsychE_Counseling_Logs').update({ scheduled_date: newDate }).eq('id', logId);
+      if (error) throw error;
+      setRescheduleId(null);
+      setNewDate('');
+      setRefreshKey(prev => prev + 1);
+    } catch (error) {
+      console.error('Error rescheduling session:', error);
+      alert('Failed to reschedule session.');
+      setLoading(false);
+    }
+  };
+
   if (loading) {
     return <div className="p-8 text-center text-muted">Loading Planner...</div>;
   }
@@ -182,7 +225,7 @@ export const KanbanBoard: React.FC = () => {
     <motion.div variants={container} initial="hidden" animate="show" style={{ padding: '1rem 0' }}>
       <div className="flex justify-between items-center mb-6">
         <div>
-          <h1 className="text-h1 flex items-center gap-3"><LayoutDashboard size={28} /> 7-Day Planner</h1>
+          <h1 className="text-h1 flex items-center gap-2"><LayoutDashboard size={28} /> 7-Day Planner</h1>
           <p className="text-muted">Manage your upcoming scheduled sessions.</p>
         </div>
       </div>
@@ -235,7 +278,7 @@ export const KanbanBoard: React.FC = () => {
                         transition: 'width 0.3s ease'
                       }}></div>
                     </div>
-                    <span className="text-muted" style={{ fontSize: '0.75rem', fontWeight: 600, color: isFull ? 'var(--color-danger)' : 'var(--color-text-muted)' }}>
+                    <span className={`px-2 py-1 rounded-full text-[0.7rem] font-bold ${isFull ? 'bg-amber-500/20 text-amber-400' : 'bg-white/5 text-gray-400'}`}>
                       {day.capacity.booked} / {day.capacity.total} Slots
                     </span>
                   </div>
@@ -289,18 +332,51 @@ export const KanbanBoard: React.FC = () => {
                       >
                         <div className="flex justify-between items-start mb-2" style={{ cursor: 'pointer' }} onClick={() => navigate(`/student/${log.student_uuid}`)}>
                           <h4 style={{ fontWeight: 600, fontSize: '1rem' }}>{student?.full_name}</h4>
-                          {riskLevel !== 'Low' && (
-                            <div style={{ 
-                              display: 'flex', alignItems: 'center', gap: '4px',
-                              fontSize: '0.7rem', fontWeight: 600,
-                              backgroundColor: riskLevel === 'High' ? 'rgba(239, 68, 68, 0.1)' : 'rgba(245, 158, 11, 0.1)',
-                              color: riskLevel === 'High' ? '#ef4444' : '#f59e0b',
-                              padding: '2px 6px', borderRadius: '4px'
-                            }}>
-                              <AlertCircle size={12} /> {riskLevel}
-                            </div>
-                          )}
+                          <div className="flex items-center gap-2">
+                            {riskLevel !== 'Low' && (
+                              <div style={{ 
+                                display: 'flex', alignItems: 'center', gap: '4px',
+                                fontSize: '0.7rem', fontWeight: 600,
+                                backgroundColor: riskLevel === 'High' ? 'rgba(239, 68, 68, 0.1)' : 'rgba(245, 158, 11, 0.1)',
+                                color: riskLevel === 'High' ? '#ef4444' : '#f59e0b',
+                                padding: '2px 6px', borderRadius: '4px'
+                              }}>
+                                <AlertCircle size={12} /> {riskLevel}
+                              </div>
+                            )}
+                            <button 
+                              onClick={(e) => { e.stopPropagation(); setRescheduleId(log.id); setNewDate(''); }}
+                              className="text-gray-400 hover:bg-white/10 hover:text-white p-1 rounded transition-colors"
+                              style={{ background: 'none', border: 'none', cursor: 'pointer' }}
+                            >
+                              <Calendar size={16} />
+                            </button>
+                            <button 
+                              onClick={(e) => handleDeleteSession(e, log.id)}
+                              className="text-red-400 hover:bg-red-500/10 p-1 rounded transition-colors"
+                              style={{ background: 'none', border: 'none', cursor: 'pointer' }}
+                            >
+                              <Trash size={16} />
+                            </button>
+                          </div>
                         </div>
+                        {rescheduleId === log.id && (
+                          <div className="flex gap-2 items-center mb-3" onClick={(e) => e.stopPropagation()}>
+                            <input 
+                              type="date" 
+                              className="input flex-1" 
+                              style={{ padding: '0.25rem 0.5rem', fontSize: '0.875rem' }} 
+                              value={newDate} 
+                              onChange={(e) => setNewDate(e.target.value)} 
+                            />
+                            <button onClick={(e) => handleReschedule(e, log.id)} className="text-emerald-400 p-1 hover:bg-emerald-500/10 rounded">
+                              <Check size={18} />
+                            </button>
+                            <button onClick={(e) => { e.stopPropagation(); setRescheduleId(null); setNewDate(''); }} className="text-gray-400 p-1 hover:bg-gray-500/10 rounded">
+                              <XCircle size={18} />
+                            </button>
+                          </div>
+                        )}
                         <p className="text-muted mb-3" style={{ fontSize: '0.875rem', lineHeight: '1.4' }}>{log.reason}</p>
                         
                         <div style={{ marginTop: 'auto', paddingTop: '0.5rem', borderTop: '1px solid rgba(255,255,255,0.05)', display: 'flex', gap: '0.5rem', flexDirection: 'column' }}>
@@ -308,31 +384,31 @@ export const KanbanBoard: React.FC = () => {
                             onClick={(e) => { e.stopPropagation(); navigate(`/add-log?schedule_id=${log.id}`); }}
                             className="btn btn-secondary w-full"
                             style={{ 
-                              padding: '0.4rem', fontSize: '0.75rem', 
-                              backgroundColor: 'rgba(74, 222, 128, 0.1)', 
-                              color: '#4ade80', 
-                              border: '1px solid rgba(74, 222, 128, 0.2)',
-                              display: 'flex', justifyContent: 'center', gap: '0.5rem'
+                              padding: '0.5rem', fontSize: '0.75rem', fontWeight: 600,
+                              backgroundColor: 'rgba(74, 222, 128, 0.2)', 
+                              color: '#ffffff', 
+                              border: '1px solid rgba(74, 222, 128, 0.3)',
+                              display: 'flex', justifyContent: 'center', gap: '0.5rem',
+                              borderRadius: 'var(--radius-full)'
                             }}
                           >
                             <CheckCircle2 size={14} /> Complete Session
                           </button>
 
-                          {day.isOverdue && (
-                            <button 
-                              onClick={(e) => handleNoShow(e, log.id, log.student_uuid, student?.engagement_modifier)}
-                              className="btn btn-secondary w-full"
-                              style={{ 
-                                padding: '0.4rem', fontSize: '0.75rem', 
-                                backgroundColor: 'rgba(239, 68, 68, 0.05)', 
-                                color: 'rgba(239, 68, 68, 0.8)', 
-                                border: '1px solid rgba(239, 68, 68, 0.1)',
-                                display: 'flex', justifyContent: 'center', gap: '0.5rem'
-                              }}
-                            >
-                              <XCircle size={14} /> Mark No-Show
-                            </button>
-                          )}
+                          <button 
+                            onClick={(e) => handleNoShow(e, log.id, log.student_uuid, student?.engagement_modifier)}
+                            className="btn btn-secondary w-full"
+                            style={{ 
+                              padding: '0.5rem', fontSize: '0.75rem', fontWeight: 600,
+                              backgroundColor: 'rgba(239, 68, 68, 0.15)', 
+                              color: '#ffffff', 
+                              border: '1px solid rgba(239, 68, 68, 0.3)',
+                              display: 'flex', justifyContent: 'center', gap: '0.5rem',
+                              borderRadius: 'var(--radius-full)'
+                            }}
+                          >
+                            <XCircle size={14} /> Mark No-Show
+                          </button>
                         </div>
                       </div>
                     );

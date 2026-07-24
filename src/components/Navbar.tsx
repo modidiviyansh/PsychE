@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, UserPlus, Activity, LogOut, BookOpen, Users, Settings as SettingsIcon, LayoutDashboard } from 'lucide-react';
+import { Search, UserPlus, Activity, LogOut, BookOpen, Users, Settings as SettingsIcon, LayoutDashboard, X } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from '../lib/supabase';
@@ -95,7 +95,7 @@ export const Navbar: React.FC = () => {
         </Link>
       </div>
 
-      <div className="flex items-center justify-center" style={{ flex: 1, maxWidth: '500px', margin: '0 2rem' }} ref={searchRef}>
+      <div className="flex items-center justify-center" style={{ flexGrow: 1, maxWidth: '600px', margin: '0 2rem' }} ref={searchRef}>
         <motion.div 
           whileFocus={{ scale: 1.02 }}
           style={{ position: 'relative', width: '100%' }}
@@ -109,6 +109,7 @@ export const Navbar: React.FC = () => {
             onChange={(e) => setSearchQuery(e.target.value)}
             style={{ 
               paddingLeft: '48px', 
+              paddingRight: searchQuery.length > 0 ? '48px' : '16px',
               borderRadius: 'var(--radius-full)', 
               backgroundColor: 'rgba(15, 17, 21, 0.5)',
               border: '1px solid var(--color-border)',
@@ -116,6 +117,17 @@ export const Navbar: React.FC = () => {
               width: '100%'
             }}
           />
+          {searchQuery.length > 0 && (
+            <button
+              onClick={() => {
+                setSearchQuery('');
+                setSearchResults([]);
+              }}
+              style={{ position: 'absolute', right: '16px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            >
+              <X size={16} className="text-muted" style={{ color: 'var(--color-text-muted)' }} />
+            </button>
+          )}
           
           <AnimatePresence>
             {searchResults.length > 0 && (
@@ -188,11 +200,17 @@ export const Navbar: React.FC = () => {
           onClick={() => navigate('/directory')}
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
-          className="btn btn-secondary"
-          style={{ border: 'none', padding: '0.5rem 1rem' }}
+          className="btn btn-secondary flex items-center gap-2"
+          style={{ 
+            border: '1px solid var(--color-border)', 
+            padding: '0.5rem 1.25rem',
+            backgroundColor: 'rgba(255,255,255,0.05)',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
+            marginRight: '0.5rem'
+          }}
         >
-          <Users size={16} className="text-muted" />
-          <span className="text-muted" style={{ fontWeight: 500 }}>Directory</span>
+          <Users size={18} className="text-primary" style={{ color: 'var(--color-primary)' }} />
+          <span style={{ fontWeight: 600, color: 'var(--color-text)' }}>Directory</span>
         </motion.button>
         <motion.button 
           onClick={() => navigate('/add-student')}

@@ -12,6 +12,13 @@ const container = {
 
 export const BulkSchedule: React.FC = () => {
   const navigate = useNavigate();
+  
+  const normalizeCourse = (course: string) => {
+    if (!course) return '';
+    const match = course.match(/^(\d+)(th|st|nd|rd)?/i);
+    if (match) return `Grade ${match[1]}`;
+    return course;
+  };
   const [students, setStudents] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [scheduling, setScheduling] = useState(false);
@@ -56,7 +63,26 @@ export const BulkSchedule: React.FC = () => {
     setScheduling(true);
 
     try {
-      const selectedStudents = students.filter(s => selectedIds.has(s.id));
+      const initialSelectedStudents = students.filter(s => selectedIds.has(s.id));
+      
+      const todayStr = new Date().toISOString().split('T')[0];
+      const { data: conflicts, error: conflictError } = await supabase
+        .from('PsychE_Counseling_Logs')
+        .select('student_uuid')
+        .in('student_uuid', initialSelectedStudents.map(s => s.id))
+        .or(`session_status.eq.Scheduled,session_status.eq.Pending,scheduled_date.gte.${todayStr}`);
+        
+      if (conflictError) throw conflictError;
+      
+      const conflictedUuids = new Set(conflicts?.map(c => c.student_uuid) || []);
+      const selectedStudents = initialSelectedStudents.filter(s => !conflictedUuids.has(s.id));
+      const skippedCount = conflictedUuids.size;
+
+      if (selectedStudents.length === 0) {
+        alert(`Action Blocked: All ${skippedCount} selected students already have an active/future session.`);
+        setScheduling(false);
+        return;
+      }
       
       // We need enough capacity for all selected students. Let's fetch next 30 days.
       const start = new Date(startDate);
@@ -103,7 +129,9 @@ export const BulkSchedule: React.FC = () => {
         const { error } = await supabase.from('PsychE_Counseling_Logs').insert(logsToInsert);
         if (error) throw error;
         
-        alert(`Successfully scheduled ${studentsScheduled} sessions!`);
+        let successMsg = `Successfully scheduled ${studentsScheduled} sessions!`;
+        if (skippedCount > 0) successMsg += ` Skipped ${skippedCount} due to existing sessions.`;
+        alert(successMsg);
         setSelectedIds(new Set());
         navigate('/kanban');
       }
@@ -155,7 +183,7 @@ export const BulkSchedule: React.FC = () => {
             onClick={handleAutoSchedule}
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
-            className="btn btn-primary"
+            className={`btn btn-primary ${selectedIds.size === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
             style={{ width: '100%', padding: '1rem', background: 'linear-gradient(135deg, var(--color-primary), #8b5cf6)', border: 'none' }}
           >
             {scheduling ? 'Scheduling...' : 'Auto-Distribute Sessions'}
@@ -166,31 +194,31 @@ export const BulkSchedule: React.FC = () => {
           {loading ? (
             <div className="p-8 text-center text-muted">Loading students...</div>
           ) : (
-            <div style={{ maxHeight: '600px', overflowY: 'auto' }}>
-              <table style={{ width: '100%', textAlign: 'left', borderCollapse: 'collapse' }}>
-                <thead style={{ position: 'sticky', top: 0, backgroundColor: 'var(--color-surface)', zIndex: 10 }}>
+            <div className="overflow-y-auto max-h-[500px]">
+              <table className="w-full text-left" style={{ borderCollapse: 'collapse' }}>
+                <thead className="sticky top-0 bg-gray-900 z-10">
                   <tr style={{ borderBottom: '1px solid var(--color-border)', color: 'var(--color-text-muted)' }}>
-                    <th style={{ padding: '1rem', width: '50px' }}>
+                    <th className="text-left px-4 py-3" style={{ width: '50px' }}>
                       <button onClick={toggleSelectAll} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text)' }}>
                         {selectedIds.size === students.length && students.length > 0 ? <CheckSquare size={20} className="text-primary" /> : <Square size={20} />}
                       </button>
                     </th>
-                    <th style={{ padding: '1rem' }}>Student Name</th>
-                    <th style={{ padding: '1rem' }}>ID</th>
-                    <th style={{ padding: '1rem' }}>Course</th>
+                    <th className="text-left px-4 py-3">Student Name</th>
+                    <th className="text-left px-4 py-3">ID</th>
+                    <th className="text-left px-4 py-3">Course</th>
                   </tr>
                 </thead>
                 <tbody>
                   {students.map(student => (
                     <tr key={student.id} style={{ borderBottom: '1px solid var(--color-border)', backgroundColor: selectedIds.has(student.id) ? 'rgba(94, 106, 210, 0.05)' : 'transparent' }}>
-                      <td style={{ padding: '1rem' }}>
+                      <td className="text-left px-4 py-3">
                         <button onClick={() => toggleSelect(student.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text)' }}>
                           {selectedIds.has(student.id) ? <CheckSquare size={20} className="text-primary" /> : <Square size={20} />}
                         </button>
                       </td>
-                      <td style={{ padding: '1rem', fontWeight: 500 }}>{student.full_name}</td>
-                      <td style={{ padding: '1rem', color: 'var(--color-text-muted)' }}>{student.student_id}</td>
-                      <td style={{ padding: '1rem' }}>{student.course}</td>
+                      <td className="text-left px-4 py-3" style={{ fontWeight: 500 }}>{student.full_name}</td>
+                      <td className="text-left px-4 py-3" style={{ color: 'var(--color-text-muted)' }}>{student.student_id}</td>
+                      <td className="text-left px-4 py-3">{normalizeCourse(student.course)}</td>
                     </tr>
                   ))}
                 </tbody>

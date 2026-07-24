@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { Plus, Users, Clock, FileText, ChevronRight, Search, Download, Calendar } from 'lucide-react';
+import { Users, Clock, Download, Plus, FileText, ChevronRight, Calendar, Search, ShieldCheck, Trash, Check, XCircle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import Papa from 'papaparse';
+import { formatDisplayDate, isOverdue } from '../utils/dateFormatter';
+import { toSentenceCase } from '../utils/stringFormatter';
 
 const container = {
   hidden: { opacity: 0 },
@@ -30,6 +32,13 @@ export const Dashboard: React.FC = () => {
   const [highRiskStudents, setHighRiskStudents] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  const [rescheduleId, setRescheduleId] = useState<string | null>(null);
+  const [newDate, setNewDate] = useState('');
+
+  useEffect(() => {
+    document.title = "PsychE | Dashboard";
+  }, []);
 
   useEffect(() => {
     fetchDashboardData();
@@ -56,7 +65,7 @@ export const Dashboard: React.FC = () => {
       
       if (sessionCount !== null) setSessionsThisMonth(sessionCount);
 
-      // Fetch recent logs
+      // Fetch recent logs (Exclude future logs using Timeline Query Guard BUG-004)
       const { data: logsData } = await supabase
         .from('PsychE_Counseling_Logs')
         .select(`
@@ -66,6 +75,7 @@ export const Dashboard: React.FC = () => {
           student_uuid,
           PsychE_Students (full_name)
         `)
+        .lte('session_date', new Date().toISOString())
         .order('session_date', { ascending: false })
         .limit(4);
 
@@ -74,44 +84,29 @@ export const Dashboard: React.FC = () => {
           id: log.id,
           student_uuid: log.student_uuid,
           student: log.PsychE_Students?.full_name || 'Unknown Student',
-          reason: log.reason,
-          date: new Date(log.session_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
+          reason: toSentenceCase(log.reason),
+          date: formatDisplayDate(log.session_date),
           color: getColorForReason(log.reason)
         }));
         setRecentLogs(formattedLogs);
       }
 
-      // Fetch Upcoming Scheduled Sessions (Today and Future)
-      const todayIsoStr = new Date().toISOString().split('T')[0];
-      const { data: followUpData } = await supabase
+      // Fetch Scheduled Sessions (All) and explicitly filter using Date Utility
+      const { data: scheduledData } = await supabase
         .from('PsychE_Counseling_Logs')
         .select(`
           id, reason, scheduled_date, student_uuid,
           PsychE_Students (full_name)
         `)
-        .eq('session_status', 'Scheduled')
-        .gte('scheduled_date', todayIsoStr)
-        .order('scheduled_date', { ascending: true })
-        .limit(3);
+        .eq('session_status', 'Scheduled');
 
-      if (followUpData) {
-        setUpcomingFollowUps(followUpData);
-      }
-
-      // Fetch Overdue Scheduled Sessions (Past dates)
-      const { data: overdueData } = await supabase
-        .from('PsychE_Counseling_Logs')
-        .select(`
-          id, reason, scheduled_date, student_uuid,
-          PsychE_Students (full_name)
-        `)
-        .eq('session_status', 'Scheduled')
-        .lt('scheduled_date', todayIsoStr)
-        .order('scheduled_date', { ascending: true })
-        .limit(3);
-
-      if (overdueData) {
-        setOverdueFollowUps(overdueData);
+      if (scheduledData) {
+        // OVERDUE logic fix (BUG-003 & BUG-005)
+        const overdue = scheduledData.filter(fu => isOverdue(fu.scheduled_date)).sort((a, b) => new Date(a.scheduled_date).getTime() - new Date(b.scheduled_date).getTime());
+        const upcoming = scheduledData.filter(fu => !isOverdue(fu.scheduled_date)).sort((a, b) => new Date(a.scheduled_date).getTime() - new Date(b.scheduled_date).getTime());
+        
+        setOverdueFollowUps(overdue.slice(0, 3));
+        setUpcomingFollowUps(upcoming.slice(0, 3));
       }
 
       // Fetch High Risk Students
@@ -132,7 +127,7 @@ export const Dashboard: React.FC = () => {
   }
 
   const getColorForReason = (reason: string) => {
-    if (reason.toLowerCase().includes('stress')) return '#e25b5b';
+    if (reason.toLowerCase().includes('stress')) return '#3b82f6'; // Neutral blue, reserved red for high risk
     if (reason.toLowerCase().includes('career')) return '#5e6ad2';
     if (reason.toLowerCase().includes('conflict')) return '#f59e0b';
     return '#4ade80';
@@ -155,12 +150,26 @@ export const Dashboard: React.FC = () => {
             const studentId = row.student_id || row.id;
             if (!studentId) return;
 
+            // Strict Regex Validation (BUG-001 & BUG-002)
+            const idRegex = /^STU-\d{4}$/;
+            if (!idRegex.test(studentId)) {
+              throw new Error(`Invalid Student ID format: ${studentId}. Must be STU-XXXX.`);
+            }
+
+            const course = row.course || 'Unknown';
+            if (course !== 'Unknown') {
+              const courseRegex = /^[a-zA-Z0-9\s\-_]+$/;
+              if (!courseRegex.test(course)) {
+                throw new Error(`Invalid Course format: ${course}. Must be alphanumeric.`);
+              }
+            }
+
             // 1. Prepare Student Data
             if (!studentsMap.has(studentId)) {
               studentsMap.set(studentId, {
                 student_id: studentId,
                 full_name: row.full_name || row.name || 'Unknown',
-                course: row.course || 'Unknown',
+                course: course,
                 email: row.email || null,
                 mobile: row.mobile || row.phone || null,
                 fathers_name: row.fathers_name || null,
@@ -310,6 +319,43 @@ export const Dashboard: React.FC = () => {
     }
   };
 
+  const handleDeleteSession = async (e: React.MouseEvent, logId: string) => {
+    e.stopPropagation();
+    if (!window.confirm("Are you sure you want to permanently delete this session? This action cannot be undone.")) return;
+
+    setLoading(true);
+    try {
+      const { error } = await supabase.from('PsychE_Counseling_Logs').delete().eq('id', logId);
+      if (error) throw error;
+      fetchDashboardData();
+    } catch (error) {
+      console.error('Error deleting session:', error);
+      alert('Failed to delete session.');
+      setLoading(false);
+    }
+  };
+
+  const handleReschedule = async (e: React.MouseEvent, logId: string) => {
+    e.stopPropagation();
+    if (!newDate) {
+      alert("Please select a new date.");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const { error } = await supabase.from('PsychE_Counseling_Logs').update({ scheduled_date: newDate }).eq('id', logId);
+      if (error) throw error;
+      setRescheduleId(null);
+      setNewDate('');
+      fetchDashboardData();
+    } catch (error) {
+      console.error('Error rescheduling session:', error);
+      alert('Failed to reschedule session.');
+      setLoading(false);
+    }
+  };
+
   const today = new Date();
   const options: Intl.DateTimeFormatOptions = { month: 'long', day: 'numeric' };
 
@@ -367,12 +413,12 @@ export const Dashboard: React.FC = () => {
         </motion.div>
 
         {/* Stats Summary */}
-        <motion.div variants={item} className="bento-card" style={{ gridColumn: 'span 4', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+        <motion.div variants={item} className="bento-card" style={{ gridColumn: 'span 4', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', height: '100%' }}>
           <div 
             onClick={() => navigate('/directory')}
-            style={{ cursor: 'pointer', transition: 'transform 0.2s' }}
-            onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.02)'}
-            onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
+            style={{ cursor: 'pointer', transition: 'all 0.2s', padding: '1rem', borderRadius: 'var(--radius-md)' }}
+            onMouseEnter={(e) => { e.currentTarget.style.transform = 'scale(1.02)'; e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.05)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.backgroundColor = 'transparent'; }}
           >
             <div className="flex items-center gap-2 mb-2 text-muted">
               <Users size={18} />
@@ -380,10 +426,15 @@ export const Dashboard: React.FC = () => {
             </div>
             <p style={{ fontSize: '3rem', fontWeight: 700, lineHeight: 1 }}>{loading ? '...' : totalStudents}</p>
           </div>
-          <div className="mt-4">
+          <div 
+            onClick={() => navigate('/logs')}
+            style={{ cursor: 'pointer', transition: 'all 0.2s', padding: '1rem', borderRadius: 'var(--radius-md)', marginTop: '1rem' }}
+            onMouseEnter={(e) => { e.currentTarget.style.transform = 'scale(1.02)'; e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.05)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.backgroundColor = 'transparent'; }}
+          >
             <div className="flex items-center gap-2 mb-2 text-muted">
               <FileText size={18} />
-              <span style={{ fontWeight: 500 }}>Sessions This Month</span>
+              <span style={{ fontWeight: 500 }}>Sessions This Month <ChevronRight size={14} style={{ display: 'inline' }}/></span>
             </div>
             <p style={{ fontSize: '2rem', fontWeight: 700, lineHeight: 1, color: 'var(--color-primary)' }}>{loading ? '...' : sessionsThisMonth}</p>
           </div>
@@ -518,17 +569,54 @@ export const Dashboard: React.FC = () => {
             
             {/* Overdue Section */}
             {overdueFollowUps.length > 0 && overdueFollowUps.map(fu => (
-              <div key={fu.id} onClick={() => navigate(`/add-log?schedule_id=${fu.id}`)} className="flex justify-between items-center p-3" style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', borderRadius: 'var(--radius-md)', cursor: 'pointer', border: '1px solid rgba(239, 68, 68, 0.3)' }}>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <p style={{ fontWeight: 600, color: '#ef4444' }}>{fu.PsychE_Students?.full_name}</p>
-                    <span style={{ fontSize: '0.65rem', backgroundColor: '#ef4444', color: 'white', padding: '2px 6px', borderRadius: '4px', fontWeight: 600, textTransform: 'uppercase' }}>Overdue</span>
+              <div key={fu.id} className="flex flex-col p-3" style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', borderRadius: 'var(--radius-md)', border: '1px solid rgba(239, 68, 68, 0.3)' }}>
+                <div className="flex justify-between items-start" style={{ cursor: 'pointer' }} onClick={() => navigate(`/add-log?schedule_id=${fu.id}`)}>
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <p style={{ fontWeight: 600, color: '#ef4444' }}>{fu.PsychE_Students?.full_name}</p>
+                      <span style={{ fontSize: '0.65rem', backgroundColor: '#ef4444', color: 'white', padding: '2px 6px', borderRadius: '4px', fontWeight: 600, textTransform: 'uppercase' }}>Overdue</span>
+                    </div>
+                    <p className="text-muted" style={{ fontSize: '0.875rem', marginBottom: '0.5rem' }}>Reason: {toSentenceCase(fu.reason)}</p>
                   </div>
-                  <p className="text-muted" style={{ fontSize: '0.875rem' }}>Reason: {fu.reason}</p>
+                  <div className="flex flex-col items-end gap-2">
+                    <div style={{ backgroundColor: 'rgba(239, 68, 68, 0.2)', color: '#ef4444', padding: '0.25rem 0.75rem', borderRadius: 'var(--radius-full)', fontSize: '0.875rem', fontWeight: 600 }}>
+                      {formatDisplayDate(fu.scheduled_date)}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); setRescheduleId(fu.id); setNewDate(''); }}
+                        className="text-gray-400 hover:text-white p-1 rounded transition-colors"
+                        style={{ background: 'none', border: 'none', cursor: 'pointer' }}
+                      >
+                        <Calendar size={16} />
+                      </button>
+                      <button 
+                        onClick={(e) => handleDeleteSession(e, fu.id)}
+                        className="text-red-400 hover:bg-red-500/10 p-1 rounded transition-colors"
+                        style={{ background: 'none', border: 'none', cursor: 'pointer' }}
+                      >
+                        <Trash size={16} />
+                      </button>
+                    </div>
+                  </div>
                 </div>
-                <div style={{ backgroundColor: 'rgba(239, 68, 68, 0.2)', color: '#ef4444', padding: '0.25rem 0.75rem', borderRadius: 'var(--radius-full)', fontSize: '0.875rem', fontWeight: 600 }}>
-                  {new Date(fu.scheduled_date).toLocaleDateString()}
-                </div>
+                {rescheduleId === fu.id && (
+                  <div className="flex gap-2 items-center mt-2 pt-2" style={{ borderTop: '1px solid rgba(239, 68, 68, 0.2)' }}>
+                    <input 
+                      type="date" 
+                      className="input flex-1" 
+                      style={{ padding: '0.25rem 0.5rem', fontSize: '0.875rem', backgroundColor: 'rgba(0,0,0,0.2)' }} 
+                      value={newDate} 
+                      onChange={(e) => setNewDate(e.target.value)} 
+                    />
+                    <button onClick={(e) => handleReschedule(e, fu.id)} className="text-emerald-400 p-1 hover:bg-emerald-500/10 rounded">
+                      <Check size={18} />
+                    </button>
+                    <button onClick={(e) => { e.stopPropagation(); setRescheduleId(null); setNewDate(''); }} className="text-gray-400 p-1 hover:bg-gray-500/10 rounded">
+                      <XCircle size={18} />
+                    </button>
+                  </div>
+                )}
               </div>
             ))}
 
@@ -537,14 +625,51 @@ export const Dashboard: React.FC = () => {
               <p className="text-muted py-2">No pending sessions scheduled.</p>
             ) : (
               upcomingFollowUps.map(fu => (
-                <div key={fu.id} onClick={() => navigate(`/add-log?schedule_id=${fu.id}`)} className="flex justify-between items-center p-3" style={{ backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: 'var(--radius-md)', cursor: 'pointer', border: '1px solid var(--color-border)' }}>
-                  <div>
-                    <p style={{ fontWeight: 600 }}>{fu.PsychE_Students?.full_name}</p>
-                    <p className="text-muted" style={{ fontSize: '0.875rem' }}>Reason: {fu.reason}</p>
+                <div key={fu.id} className="flex flex-col p-3" style={{ backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)' }}>
+                  <div className="flex justify-between items-start" style={{ cursor: 'pointer' }} onClick={() => navigate(`/add-log?schedule_id=${fu.id}`)}>
+                    <div>
+                      <p style={{ fontWeight: 600, marginBottom: '0.25rem' }}>{fu.PsychE_Students?.full_name}</p>
+                      <p className="text-muted" style={{ fontSize: '0.875rem', marginBottom: '0.5rem' }}>Reason: {toSentenceCase(fu.reason)}</p>
+                    </div>
+                    <div className="flex flex-col items-end gap-2">
+                      <div style={{ backgroundColor: 'rgba(94, 106, 210, 0.1)', color: 'var(--color-primary)', padding: '0.25rem 0.75rem', borderRadius: 'var(--radius-full)', fontSize: '0.875rem', fontWeight: 600 }}>
+                        {formatDisplayDate(fu.scheduled_date)}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); setRescheduleId(fu.id); setNewDate(''); }}
+                          className="text-gray-400 hover:text-white p-1 rounded transition-colors"
+                          style={{ background: 'none', border: 'none', cursor: 'pointer' }}
+                        >
+                          <Calendar size={16} />
+                        </button>
+                        <button 
+                          onClick={(e) => handleDeleteSession(e, fu.id)}
+                          className="text-red-400 hover:bg-red-500/10 p-1 rounded transition-colors"
+                          style={{ background: 'none', border: 'none', cursor: 'pointer' }}
+                        >
+                          <Trash size={16} />
+                        </button>
+                      </div>
+                    </div>
                   </div>
-                  <div style={{ backgroundColor: 'rgba(94, 106, 210, 0.1)', color: 'var(--color-primary)', padding: '0.25rem 0.75rem', borderRadius: 'var(--radius-full)', fontSize: '0.875rem', fontWeight: 600 }}>
-                    {new Date(fu.scheduled_date).toLocaleDateString()}
-                  </div>
+                  {rescheduleId === fu.id && (
+                    <div className="flex gap-2 items-center mt-2 pt-2" style={{ borderTop: '1px solid var(--color-border)' }}>
+                      <input 
+                        type="date" 
+                        className="input flex-1" 
+                        style={{ padding: '0.25rem 0.5rem', fontSize: '0.875rem', backgroundColor: 'rgba(0,0,0,0.2)' }} 
+                        value={newDate} 
+                        onChange={(e) => setNewDate(e.target.value)} 
+                      />
+                      <button onClick={(e) => handleReschedule(e, fu.id)} className="text-emerald-400 p-1 hover:bg-emerald-500/10 rounded">
+                        <Check size={18} />
+                      </button>
+                      <button onClick={(e) => { e.stopPropagation(); setRescheduleId(null); setNewDate(''); }} className="text-gray-400 p-1 hover:bg-gray-500/10 rounded">
+                        <XCircle size={18} />
+                      </button>
+                    </div>
+                  )}
                 </div>
               ))
             )}
@@ -554,9 +679,12 @@ export const Dashboard: React.FC = () => {
         {/* High Risk Watchlist */}
         <motion.div variants={item} className="bento-card" style={{ gridColumn: 'span 5', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
           <h3 className="text-h3 mb-4 flex items-center gap-2" style={{ color: '#ef4444' }}><Users size={20} /> High Risk Watchlist</h3>
-          <div className="flex" style={{ flexDirection: 'column', gap: '1rem' }}>
+          <div className="flex" style={{ flexDirection: 'column', gap: '1rem', flex: 1 }}>
             {highRiskStudents.length === 0 ? (
-              <p className="text-muted py-2">No students currently flagged as High Risk.</p>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '250px' }}>
+                <ShieldCheck size={48} className="text-muted mb-4" />
+                <p className="text-muted">No high-risk students at this time.</p>
+              </div>
             ) : (
               highRiskStudents.map(student => (
                 <div key={student.id} onClick={() => navigate(`/student/${student.id}`)} className="flex justify-between items-center p-3" style={{ backgroundColor: 'rgba(239, 68, 68, 0.05)', borderRadius: 'var(--radius-md)', cursor: 'pointer' }}>

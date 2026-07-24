@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Edit2, Calendar, Phone, Mail, BookOpen, ArrowLeft, Eye, EyeOff, User, BrainCircuit, ChevronDown, ChevronUp, FileDown, X } from 'lucide-react';
+import { Edit2, Calendar, Phone, Mail, BookOpen, ArrowLeft, Eye, EyeOff, User, BrainCircuit, ChevronDown, ChevronUp, FileDown, X, Tag, Plus } from 'lucide-react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { AssessmentWizard } from '../components/AssessmentWizard';
@@ -33,6 +33,11 @@ export const StudentProfile: React.FC = () => {
   const [activeAssessmentId, setActiveAssessmentId] = useState<string | null>(null);
   const [activeDraftLogId, setActiveDraftLogId] = useState<string | undefined>(undefined);
   const [activeDraftData, setActiveDraftData] = useState<Record<string, any>>({});
+
+  // Tags States
+  const [allTags, setAllTags] = useState<any[]>([]);
+  const [studentTags, setStudentTags] = useState<any[]>([]);
+  const [isManageTagsOpen, setIsManageTagsOpen] = useState(false);
   
   // Timeline States
   const [expandedLogs, setExpandedLogs] = useState<Set<string>>(new Set());
@@ -42,6 +47,9 @@ export const StudentProfile: React.FC = () => {
   const [reportType, setReportType] = useState('custom');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+  useEffect(() => {
+    document.title = "PsychE | Student Profile";
+  }, []);
 
   useEffect(() => {
     async function fetchStudentProfile() {
@@ -65,6 +73,19 @@ export const StudentProfile: React.FC = () => {
         if (logsError) throw logsError;
         
         setLogs(logsData || []);
+
+        // Fetch Tags
+        const { data: sysTags } = await supabase.from('PsychE_System_Tags').select('*');
+        if (sysTags) setAllTags(sysTags);
+
+        const { data: stTags } = await supabase
+          .from('PsychE_Student_Tags')
+          .select('tag_id, PsychE_System_Tags(*)')
+          .eq('student_uuid', id);
+        
+        if (stTags) {
+          setStudentTags(stTags.map((st: any) => st.PsychE_System_Tags).filter(Boolean));
+        }
 
       } catch (error) {
         console.error('Error fetching student profile:', error);
@@ -114,6 +135,17 @@ export const StudentProfile: React.FC = () => {
     }
   };
 
+  const handleToggleTag = async (tag: any) => {
+    const hasTag = studentTags.some(t => t.id === tag.id);
+    if (hasTag) {
+      await supabase.from('PsychE_Student_Tags').delete().eq('student_uuid', id).eq('tag_id', tag.id);
+      setStudentTags(studentTags.filter(t => t.id !== tag.id));
+    } else {
+      await supabase.from('PsychE_Student_Tags').insert([{ student_uuid: id, tag_id: tag.id }]);
+      setStudentTags([...studentTags, tag]);
+    }
+  };
+
   if (loading) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh' }}>
@@ -153,8 +185,78 @@ export const StudentProfile: React.FC = () => {
             }}>Risk: {student.risk_level || 'Low'}</span>
           </h1>
           <p className="text-muted">{student.course} • ID: {student.student_id}</p>
+          
+          {/* Display Awarded Tags */}
+          {studentTags.length > 0 && (
+            <div className="flex flex-wrap gap-2 mt-3">
+              {studentTags.map(tag => (
+                <span 
+                  key={tag.id} 
+                  className="flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold"
+                  style={{ backgroundColor: `${tag.color_hex}20`, color: tag.color_hex, border: `1px solid ${tag.color_hex}40` }}
+                >
+                  <Tag size={12} /> {tag.tag_name}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
-        <div className="flex gap-4">
+        <div className="flex gap-4 relative">
+          <motion.button 
+            whileHover={{ scale: 1.05 }} 
+            whileTap={{ scale: 0.95 }} 
+            className="btn btn-secondary no-print" 
+            onClick={() => setIsManageTagsOpen(!isManageTagsOpen)}
+            style={{ backgroundColor: 'rgba(255, 255, 255, 0.05)', color: 'var(--color-text)', borderColor: 'var(--color-border)' }}
+          >
+            <Plus size={18} /> Add Tag
+          </motion.button>
+          
+          {/* Tags Dropdown */}
+          <AnimatePresence>
+            {isManageTagsOpen && (
+              <motion.div 
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 10 }}
+                className="absolute top-12 left-0 z-50 p-4 rounded-xl shadow-xl"
+                style={{ backgroundColor: 'var(--color-surface)', border: '1px solid var(--color-border)', width: '280px' }}
+              >
+                <h4 className="text-sm font-semibold mb-3">System Tags</h4>
+                <div className="flex flex-col gap-4 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
+                  {Object.entries(
+                    allTags.reduce((acc, tag) => {
+                      const cat = tag.tag_category || 'General';
+                      if (!acc[cat]) acc[cat] = [];
+                      acc[cat].push(tag);
+                      return acc;
+                    }, {} as Record<string, any[]>)
+                  ).map(([cat, catTags]) => (
+                    <div key={cat}>
+                      <h5 className="text-xs font-semibold text-muted mb-2 uppercase">{cat}</h5>
+                      <div className="flex flex-col gap-1">
+                        {(catTags as any[]).map(tag => {
+                          const isAssigned = studentTags.some(t => t.id === tag.id);
+                          return (
+                            <button 
+                              key={tag.id}
+                              onClick={() => handleToggleTag(tag)}
+                              className={`text-left text-sm p-2 rounded flex items-center justify-between ${isAssigned ? 'bg-white/10' : 'hover:bg-white/5'}`}
+                            >
+                              <span style={{ color: tag.color_hex }}>{tag.tag_name}</span>
+                              {isAssigned && <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: tag.color_hex }} />}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                  {allTags.length === 0 && <p className="text-xs text-muted">No system tags created yet.</p>}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
           <motion.button 
             whileHover={{ scale: 1.05 }} 
             whileTap={{ scale: 0.95 }} 

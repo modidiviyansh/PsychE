@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, Save, Sparkles, CheckCircle, Calendar as CalendarIcon, FileText } from 'lucide-react';
+import { ArrowLeft, Save, Sparkles, CheckCircle, Calendar as CalendarIcon, FileText, AlertTriangle } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { getAvailableCapacityForDateRange } from '../lib/capacity';
+import { toSentenceCase } from '../utils/stringFormatter';
 import { AssessmentWizard } from '../components/AssessmentWizard';
 
 const container = {
@@ -22,8 +23,8 @@ export const AddLog: React.FC = () => {
   
   // Form State
   const [studentUuid, setStudentUuid] = useState(prefilledStudentId || '');
-  const [counselorName, setCounselorName] = useState('Counselor');
-  const [interactionType, setInteractionType] = useState('Session');
+  const [counselorName, setCounselorName] = useState('');
+  const [interactionType, setInteractionType] = useState('');
   const [reason, setReason] = useState('');
   const [studentResponse, setStudentResponse] = useState('');
   const [recommendedAction, setRecommendedAction] = useState('');
@@ -43,6 +44,39 @@ export const AddLog: React.FC = () => {
   // Wizard Progress State
   const [completedAssessments, setCompletedAssessments] = useState<Set<string>>(new Set());
   const [draftLogId, setDraftLogId] = useState<string | null>(null);
+
+  // Conflict Guard State
+  const [hasConflict, setHasConflict] = useState(false);
+  const [conflictDate, setConflictDate] = useState('');
+
+  useEffect(() => {
+    async function checkConflict() {
+      if (!studentUuid) {
+        setHasConflict(false);
+        return;
+      }
+      
+      const { data } = await supabase
+        .from('PsychE_Counseling_Logs')
+        .select('id, scheduled_date')
+        .eq('student_uuid', studentUuid)
+        .in('session_status', ['Scheduled', 'Pending']);
+        
+      const activeConflicts = data?.filter(log => log.id !== scheduleId) || [];
+      if (activeConflicts.length > 0) {
+        setHasConflict(true);
+        setConflictDate(activeConflicts[0].scheduled_date || 'future date');
+      } else {
+        setHasConflict(false);
+        setConflictDate('');
+      }
+    }
+    checkConflict();
+  }, [studentUuid, scheduleId]);
+
+  useEffect(() => {
+    document.title = "PsychE | Log Session";
+  }, []);
 
   useEffect(() => {
     async function fetchInitialData() {
@@ -67,9 +101,15 @@ export const AddLog: React.FC = () => {
         }
       }
 
-      // 3. Fetch Master Library
-      const { data: mlData } = await supabase.from('PsychE_Assessment_Master').select('*');
-      if (mlData) setMasterLibrary(mlData);
+      // 3. Fetch Active Modules
+      const { data: mlData, error: mlError } = await supabase.from('PsychE_Modules').select('id, name, type, description, smart_keywords').eq('is_locked', false);
+      if (mlError && (mlError.message.includes('description') || mlError.message.includes('smart_keywords'))) {
+        // Fallback if schema hasn't updated yet
+        const { data: fallbackData } = await supabase.from('PsychE_Modules').select('id, name, type').eq('is_locked', false);
+        if (fallbackData) setMasterLibrary(fallbackData);
+      } else if (mlData) {
+        setMasterLibrary(mlData);
+      }
 
       // 4. Fetch Config
       const { data: configData } = await supabase.from('PsychE_Settings').select('assessment_cooldown_days').limit(1).single();
@@ -129,10 +169,13 @@ export const AddLog: React.FC = () => {
     const newMatches = new Set<string>();
     const now = new Date();
 
-    masterLibrary.forEach(assessment => {
+    masterLibrary.forEach(module => {
       let isMatch = false;
-      for (const kw of assessment.keywords) {
-        if (words.has(kw.toLowerCase())) {
+      const targetString = `${module.name || ''} ${module.description || ''}`.toLowerCase();
+      const keywords = module.smart_keywords || [];
+      
+      for (const word of words) {
+        if (word.length > 2 && (targetString.includes(word) || keywords.some((kw: string) => kw.includes(word)))) {
           isMatch = true;
           break;
         }
@@ -145,13 +188,13 @@ export const AddLog: React.FC = () => {
           const diffDays = (now.getTime() - taken.getTime()) / (1000 * 3600 * 24);
           
           if (diffDays <= cooldownDays) {
-            return log.assessment_data.some((a: any) => a.assessment_id === assessment.id);
+            return log.assessment_data.some((a: any) => a.assessment_id === module.id);
           }
           return false;
         });
 
         if (!isCoolingDown) {
-          newMatches.add(assessment.id);
+          newMatches.add(module.id);
         }
       }
     });
@@ -177,6 +220,23 @@ export const AddLog: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // 1. Conflict Guard (Single-Session Rule)
+    if (hasConflict && followUpDate) {
+      alert("Action Blocked: Student already has an active follow-up. Please edit the existing session instead.");
+      return;
+    }
+
+    // Meaningful Data Enforcement (BUG-008)
+    if (reason.trim().length < 15) {
+      alert("Please provide at least 15 characters of meaningful context for the Reason.");
+      return;
+    }
+    if (studentResponse.trim().length < 15) {
+      alert("Please provide at least 15 characters of meaningful context for Summary Notes.");
+      return;
+    }
+
     setSaving(true);
     
     try {
@@ -186,9 +246,9 @@ export const AddLog: React.FC = () => {
         session_status: 'Completed',
         session_date: new Date().toISOString(),
         counselor_name: counselorName,
-        reason: reason,
-        student_response: studentResponse,
-        recommended_action: recommendedAction,
+        reason: toSentenceCase(reason),
+        student_response: toSentenceCase(studentResponse),
+        recommended_action: toSentenceCase(recommendedAction),
         interaction_type: interactionType,
         follow_up_date: followUpDate || null,
         follow_up_status: followUpDate ? 'Pending' : null,
@@ -239,19 +299,36 @@ export const AddLog: React.FC = () => {
   };
 
   return (
-    <motion.div variants={container} initial="hidden" animate="show" style={{ padding: '1rem 0', maxWidth: '800px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+    <motion.div variants={container} initial="hidden" animate="show" style={{ padding: '1rem 0', maxWidth: '800px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '1.5rem', paddingBottom: '6rem' }}>
       
       <div className="flex justify-between items-center">
         <div>
-          <button onClick={() => navigate(-1)} className="btn btn-secondary mb-2" style={{ padding: '0.25rem 0.5rem', fontSize: '0.875rem', backgroundColor: 'transparent', border: 'none' }}>
-            <ArrowLeft size={16} /> Back
+          <button onClick={() => navigate(-1)} className="btn btn-secondary mb-2" style={{ padding: '0.25rem 0.5rem', fontSize: '0.875rem', backgroundColor: 'transparent', border: 'none', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <ArrowLeft size={16} /> Back to Dashboard
           </button>
-          <h1 className="text-h1">{scheduleId ? 'Complete Scheduled Session' : 'Log a Counseling Session'}</h1>
+          <h1 className="text-h1 flex items-center gap-2">{scheduleId ? 'Complete Scheduled Session' : 'Log a Counseling Session'}</h1>
           <p className="text-muted">Record session details. The Smart Engine will suggest tests as you type.</p>
         </div>
       </div>
 
       <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+        
+        {hasConflict && (
+          <motion.div 
+            initial={{ opacity: 0, y: -10 }} 
+            animate={{ opacity: 1, y: 0 }}
+            className="flex items-start gap-3 p-4" 
+            style={{ backgroundColor: 'rgba(245, 158, 11, 0.1)', border: '1px solid rgba(245, 158, 11, 0.2)', borderRadius: 'var(--radius-md)', color: '#f59e0b' }}
+          >
+            <AlertTriangle size={24} style={{ flexShrink: 0 }} />
+            <div>
+              <p style={{ fontWeight: 600 }}>Action Required</p>
+              <p style={{ fontSize: '0.875rem', marginTop: '0.25rem' }}>
+                {students.find(s => s.id === studentUuid)?.full_name || 'This student'} already has a session scheduled for {conflictDate}. Please update the existing session's notes or select a different date.
+              </p>
+            </div>
+          </motion.div>
+        )}
         
         {/* TOP BENTO: Meta Info */}
         <motion.div className="bento-card" style={{ padding: '2rem' }}>
@@ -266,7 +343,7 @@ export const AddLog: React.FC = () => {
                 style={{ appearance: 'auto' }}
                 disabled={!!scheduleId}
               >
-                <option value="">-- Select a Student --</option>
+                <option value="" disabled>-- Select a Student --</option>
                 {students.map(s => (
                   <option key={s.id} value={s.id}>{s.full_name} ({s.student_id})</option>
                 ))}
@@ -285,11 +362,13 @@ export const AddLog: React.FC = () => {
             <div style={{ flex: 1 }}>
               <label className="text-h3" style={{ fontSize: '0.875rem', display: 'block', marginBottom: '0.5rem' }}>Interaction Type</label>
               <select 
+                required
                 className="input"
                 value={interactionType}
                 onChange={(e) => setInteractionType(e.target.value)}
                 style={{ appearance: 'auto' }}
               >
+                <option value="" disabled>-- Select --</option>
                 <option value="Session">Session</option>
                 <option value="Quick Note">Quick Note</option>
                 <option value="Parent Contact">Parent Contact</option>
@@ -304,12 +383,12 @@ export const AddLog: React.FC = () => {
             <label className="text-h3" style={{ fontSize: '1rem', display: 'block', marginBottom: '0.5rem' }}>Primary Reason / Intake Notes *</label>
             <textarea 
               required
-              className="input" 
+              className="input resize-y" 
               rows={4}
               placeholder="e.g. Student is feeling extremely anxious about upcoming exams..."
               value={reason}
               onChange={handleIntakeChange}
-              style={{ resize: 'vertical' }}
+              minLength={15}
             />
           </div>
 
@@ -328,8 +407,8 @@ export const AddLog: React.FC = () => {
                   </h4>
                   <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                     {matchedAssessments.map(id => {
-                      const assessment = masterLibrary.find(a => a.id === id);
-                      if (!assessment) return null;
+                      const module = masterLibrary.find(a => a.id === id);
+                      if (!module) return null;
                       const isCompleted = completedAssessments.has(id);
 
                       return (
@@ -362,7 +441,7 @@ export const AddLog: React.FC = () => {
                           }}
                         >
                           {isCompleted ? <CheckCircle size={14} /> : <FileText size={14} className="text-muted" />}
-                          {assessment.title}
+                          {module.name} <span style={{ opacity: 0.7, fontSize: '0.75rem' }}>({module.type})</span>
                         </button>
                       );
                     })}
@@ -392,12 +471,12 @@ export const AddLog: React.FC = () => {
             <div>
               <label className="text-h3" style={{ fontSize: '1rem', display: 'block', marginBottom: '0.5rem' }}>Summary Notes & Student Response</label>
               <textarea 
-                className="input" 
+                className="input resize-y" 
                 rows={4}
                 placeholder="Synthesize the session, noting student reactions and overall takeaways..."
                 value={studentResponse}
                 onChange={(e) => setStudentResponse(e.target.value)}
-                style={{ resize: 'vertical' }}
+                minLength={15}
               />
             </div>
 

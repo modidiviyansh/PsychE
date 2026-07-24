@@ -15,6 +15,10 @@ export const StudentDirectory: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   
+  // Tag Filter State
+  const [systemTags, setSystemTags] = useState<any[]>([]);
+  const [selectedTagId, setSelectedTagId] = useState<string>('');
+  
   // Selection State
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   
@@ -23,15 +27,39 @@ export const StudentDirectory: React.FC = () => {
   const [printData, setPrintData] = useState<any[]>([]);
 
   useEffect(() => {
-    fetchStudents();
+    async function init() {
+      const { data } = await supabase.from('PsychE_System_Tags').select('*');
+      if (data) setSystemTags(data);
+    }
+    init();
   }, []);
 
+  useEffect(() => {
+    fetchStudents();
+  }, [selectedTagId]);
+
   async function fetchStudents() {
+    setLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('PsychE_Students')
-        .select('*')
-        .order('full_name');
+      let query = supabase.from('PsychE_Students').select('*').order('full_name');
+      
+      if (selectedTagId) {
+        // Find students that have this tag
+        const { data: taggedStudents } = await supabase
+          .from('PsychE_Student_Tags')
+          .select('student_uuid')
+          .eq('tag_id', selectedTagId);
+          
+        if (taggedStudents && taggedStudents.length > 0) {
+          const ids = taggedStudents.map(ts => ts.student_uuid);
+          query = query.in('id', ids);
+        } else {
+          setStudents([]);
+          return;
+        }
+      }
+
+      const { data, error } = await query;
       
       if (error) throw error;
       setStudents(data || []);
@@ -141,8 +169,8 @@ export const StudentDirectory: React.FC = () => {
           </div>
         </div>
 
-        <motion.div className="bento-card mb-6">
-          <div style={{ position: 'relative' }}>
+        <motion.div className="bento-card mb-6 flex gap-4">
+          <div style={{ position: 'relative', flex: 1 }}>
             <Search style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-muted)' }} size={18} />
             <input 
               type="text" 
@@ -150,8 +178,20 @@ export const StudentDirectory: React.FC = () => {
               className="input"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              style={{ paddingLeft: '48px', width: '100%', maxWidth: '500px' }}
+              style={{ paddingLeft: '48px', width: '100%' }}
             />
+          </div>
+          <div style={{ width: '250px' }}>
+            <select 
+              className="input w-full"
+              value={selectedTagId}
+              onChange={(e) => setSelectedTagId(e.target.value)}
+            >
+              <option value="">All Tags</option>
+              {systemTags.map(tag => (
+                <option key={tag.id} value={tag.id}>{tag.tag_name}</option>
+              ))}
+            </select>
           </div>
         </motion.div>
 
