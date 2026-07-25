@@ -37,7 +37,8 @@ export const StudentProfile: React.FC = () => {
   // Tags States
   const [allTags, setAllTags] = useState<any[]>([]);
   const [studentTags, setStudentTags] = useState<any[]>([]);
-  const [isManageTagsOpen, setIsManageTagsOpen] = useState(false);
+  const [isTagModalOpen, setIsTagModalOpen] = useState(false);
+  const [tagSearchQuery, setTagSearchQuery] = useState('');
   
   // Timeline States
   const [expandedLogs, setExpandedLogs] = useState<Set<string>>(new Set());
@@ -185,77 +186,8 @@ export const StudentProfile: React.FC = () => {
             }}>Risk: {student.risk_level || 'Low'}</span>
           </h1>
           <p className="text-muted">{student.course} • ID: {student.student_id}</p>
-          
-          {/* Display Awarded Tags */}
-          {studentTags.length > 0 && (
-            <div className="flex flex-wrap gap-2 mt-3">
-              {studentTags.map(tag => (
-                <span 
-                  key={tag.id} 
-                  className="flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold"
-                  style={{ backgroundColor: `${tag.color_hex}20`, color: tag.color_hex, border: `1px solid ${tag.color_hex}40` }}
-                >
-                  <Tag size={12} /> {tag.tag_name}
-                </span>
-              ))}
-            </div>
-          )}
         </div>
-        <div className="flex gap-4 relative">
-          <motion.button 
-            whileHover={{ scale: 1.05 }} 
-            whileTap={{ scale: 0.95 }} 
-            className="btn btn-secondary no-print" 
-            onClick={() => setIsManageTagsOpen(!isManageTagsOpen)}
-            style={{ backgroundColor: 'rgba(255, 255, 255, 0.05)', color: 'var(--color-text)', borderColor: 'var(--color-border)' }}
-          >
-            <Plus size={18} /> Add Tag
-          </motion.button>
-          
-          {/* Tags Dropdown */}
-          <AnimatePresence>
-            {isManageTagsOpen && (
-              <motion.div 
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 10 }}
-                className="absolute top-12 left-0 z-50 p-4 rounded-xl shadow-xl"
-                style={{ backgroundColor: 'var(--color-surface)', border: '1px solid var(--color-border)', width: '280px' }}
-              >
-                <h4 className="text-sm font-semibold mb-3">System Tags</h4>
-                <div className="flex flex-col gap-4 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
-                  {Object.entries(
-                    allTags.reduce((acc, tag) => {
-                      const cat = tag.tag_category || 'General';
-                      if (!acc[cat]) acc[cat] = [];
-                      acc[cat].push(tag);
-                      return acc;
-                    }, {} as Record<string, any[]>)
-                  ).map(([cat, catTags]) => (
-                    <div key={cat}>
-                      <h5 className="text-xs font-semibold text-muted mb-2 uppercase">{cat}</h5>
-                      <div className="flex flex-col gap-1">
-                        {(catTags as any[]).map(tag => {
-                          const isAssigned = studentTags.some(t => t.id === tag.id);
-                          return (
-                            <button 
-                              key={tag.id}
-                              onClick={() => handleToggleTag(tag)}
-                              className={`text-left text-sm p-2 rounded flex items-center justify-between ${isAssigned ? 'bg-white/10' : 'hover:bg-white/5'}`}
-                            >
-                              <span style={{ color: tag.color_hex }}>{tag.tag_name}</span>
-                              {isAssigned && <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: tag.color_hex }} />}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ))}
-                  {allTags.length === 0 && <p className="text-xs text-muted">No system tags created yet.</p>}
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
+        <div className="flex gap-4">
 
           <motion.button 
             whileHover={{ scale: 1.05 }} 
@@ -344,6 +276,61 @@ export const StudentProfile: React.FC = () => {
               <div style={{ padding: '0.5rem', backgroundColor: 'var(--color-bg)', borderRadius: 'var(--radius-md)' }}><Calendar size={16} className="text-primary"/></div>
               <div><p className="text-muted" style={{ fontSize: '0.75rem' }}>Enrolled</p><p style={{ fontWeight: 500 }}>{student.enrolled_date ? new Date(student.enrolled_date).toLocaleDateString() : 'N/A'}</p></div>
             </div>
+
+          </div>
+
+          {/* ── Tags Section (inside left card) ── */}
+          <div className="no-print" style={{ marginTop: '1.5rem', paddingTop: '1.25rem', borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.875rem' }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.75rem', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--color-text-muted)' }}>
+                <Tag size={12} /> Tags
+              </span>
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={() => { setIsTagModalOpen(true); setTagSearchQuery(''); }}
+                style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', padding: '0.25rem 0.6rem', fontSize: '0.6875rem', fontWeight: 600, borderRadius: 'var(--radius-full)', backgroundColor: 'rgba(94,106,210,0.12)', color: 'var(--color-primary)', border: '1px solid rgba(94,106,210,0.25)', cursor: 'pointer' }}
+              >
+                <Plus size={10} /> Manage
+              </motion.button>
+            </div>
+
+            {studentTags.length === 0 ? (
+              <p style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted)', fontStyle: 'italic' }}>No tags assigned yet.</p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
+                {Object.entries(
+                  studentTags.reduce((acc: Record<string, any[]>, tag: any) => {
+                    const cat = tag.tag_category || 'General';
+                    if (!acc[cat]) acc[cat] = [];
+                    acc[cat].push(tag);
+                    return acc;
+                  }, {})
+                ).map(([cat, catTags]) => (
+                  <div key={cat}>
+                    <p style={{ fontSize: '0.625rem', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--color-text-muted)', marginBottom: '0.4rem' }}>{cat}</p>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
+                      {catTags.map((tag: any) => (
+                        <span
+                          key={tag.id}
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', padding: '0.2rem 0.55rem', fontSize: '0.71875rem', fontWeight: 600, borderRadius: 'var(--radius-full)', backgroundColor: `${tag.color_hex}18`, color: tag.color_hex, border: `1px solid ${tag.color_hex}30` }}
+                        >
+                          <span style={{ width: '5px', height: '5px', borderRadius: '50%', backgroundColor: tag.color_hex, flexShrink: 0 }} />
+                          {tag.tag_name}
+                          <button
+                            onClick={() => handleToggleTag(tag)}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: tag.color_hex, opacity: 0.55, display: 'flex', alignItems: 'center', padding: 0, marginLeft: '0.05rem' }}
+                            title="Remove tag"
+                          >
+                            <X size={9} />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </motion.div>
 
@@ -509,6 +496,104 @@ export const StudentProfile: React.FC = () => {
           </div>
         </motion.div>
       </div>
+
+      {/* ── Tag Assignment Modal ── */}
+      <AnimatePresence>
+        {isTagModalOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setIsTagModalOpen(false)}
+            style={{ position: 'fixed', inset: 0, zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(6px)' }}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.94, y: 16 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.94, y: 16 }}
+              onClick={(e) => e.stopPropagation()}
+              style={{ width: '100%', maxWidth: '480px', maxHeight: '80vh', display: 'flex', flexDirection: 'column', backgroundColor: 'var(--color-surface)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 'var(--radius-lg)', overflow: 'hidden', boxShadow: '0 24px 64px rgba(0,0,0,0.5)' }}
+            >
+              {/* Modal Header */}
+              <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid rgba(255,255,255,0.07)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                  <Tag size={16} style={{ color: 'var(--color-primary)' }} />
+                  <h3 style={{ fontSize: '1rem', fontWeight: 600, margin: 0 }}>Manage Tags</h3>
+                </div>
+                <button onClick={() => setIsTagModalOpen(false)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', display: 'flex' }}>
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Search */}
+              <div style={{ padding: '0.875rem 1.5rem', borderBottom: '1px solid rgba(255,255,255,0.05)', flexShrink: 0 }}>
+                <input
+                  type="text"
+                  className="input"
+                  placeholder="Search tags..."
+                  value={tagSearchQuery}
+                  onChange={(e) => setTagSearchQuery(e.target.value)}
+                  style={{ fontSize: '0.875rem', padding: '0.5rem 0.875rem' }}
+                  autoFocus
+                />
+              </div>
+
+              {/* Scrollable Tag List */}
+              <div style={{ overflowY: 'auto', flex: 1, padding: '1rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                {(() => {
+                  const filtered = allTags.filter(t =>
+                    t.tag_name.toLowerCase().includes(tagSearchQuery.toLowerCase()) ||
+                    (t.tag_category || '').toLowerCase().includes(tagSearchQuery.toLowerCase())
+                  );
+                  const grouped = filtered.reduce((acc: Record<string, any[]>, tag: any) => {
+                    const cat = tag.tag_category || 'General';
+                    if (!acc[cat]) acc[cat] = [];
+                    acc[cat].push(tag);
+                    return acc;
+                  }, {});
+                  if (Object.keys(grouped).length === 0) return (
+                    <p style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)', textAlign: 'center', padding: '2rem 0' }}>No tags found.</p>
+                  );
+                  return Object.entries(grouped).map(([cat, catTags]) => (
+                    <div key={cat}>
+                      <p style={{ fontSize: '0.6875rem', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--color-text-muted)', marginBottom: '0.6rem' }}>{cat}</p>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                        {(catTags as any[]).map((tag: any) => {
+                          const isAssigned = studentTags.some(t => t.id === tag.id);
+                          return (
+                            <button
+                              key={tag.id}
+                              onClick={() => handleToggleTag(tag)}
+                              style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.625rem 0.75rem', borderRadius: 'var(--radius-md)', border: 'none', cursor: 'pointer', backgroundColor: isAssigned ? `${tag.color_hex}15` : 'transparent', transition: 'background-color 0.15s ease' }}
+                              onMouseEnter={e => { if (!isAssigned) e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.04)'; }}
+                              onMouseLeave={e => { e.currentTarget.style.backgroundColor = isAssigned ? `${tag.color_hex}15` : 'transparent'; }}
+                            >
+                              <span style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                                <span style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: tag.color_hex, flexShrink: 0 }} />
+                                <span style={{ fontSize: '0.875rem', fontWeight: 500, color: isAssigned ? tag.color_hex : 'var(--color-text)' }}>{tag.tag_name}</span>
+                              </span>
+                              {isAssigned && (
+                                <span style={{ fontSize: '0.6875rem', fontWeight: 700, letterSpacing: '0.05em', padding: '0.15rem 0.5rem', borderRadius: '4px', backgroundColor: `${tag.color_hex}25`, color: tag.color_hex }}>ASSIGNED</span>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ));
+                })()}
+                {allTags.length === 0 && <p style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)', textAlign: 'center', padding: '2rem 0' }}>No system tags have been created yet.</p>}
+              </div>
+
+              {/* Footer */}
+              <div style={{ padding: '1rem 1.5rem', borderTop: '1px solid rgba(255,255,255,0.07)', flexShrink: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>{studentTags.length} tag{studentTags.length !== 1 ? 's' : ''} assigned</span>
+                <button onClick={() => setIsTagModalOpen(false)} className="btn btn-primary" style={{ padding: '0.5rem 1.25rem', fontSize: '0.875rem' }}>Done</button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Date Range Report Modal */}
       {isReportModalOpen && (

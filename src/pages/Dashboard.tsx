@@ -294,7 +294,7 @@ export const Dashboard: React.FC = () => {
       const csvData = data.map((log: any) => {
         const student = log.PsychE_Students;
         return {
-          'Date': new Date(log.session_date).toLocaleString(),
+          'Date': new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date(log.session_date)),
           'Student Name': student?.full_name || 'Unknown',
           'Student ID': student?.student_id || 'Unknown',
           'Counselor': log.counselor_name,
@@ -309,7 +309,7 @@ export const Dashboard: React.FC = () => {
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.setAttribute('download', `monthly_report_${new Date().toLocaleString('default', { month: 'long', year: 'numeric' })}.csv`);
+      link.setAttribute('download', `monthly_report_${new Intl.DateTimeFormat('en-GB', { month: 'long', year: 'numeric' }).format(new Date()).replace(' ', '_')}.csv`);
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -357,7 +357,7 @@ export const Dashboard: React.FC = () => {
   };
 
   const today = new Date();
-  const options: Intl.DateTimeFormatOptions = { month: 'long', day: 'numeric' };
+
 
   return (
     <motion.div 
@@ -372,8 +372,8 @@ export const Dashboard: React.FC = () => {
           <p className="text-muted">Here's what's happening at GCM Convent School today.</p>
         </div>
         <div className="text-right">
-          <p className="text-h2">{today.toLocaleDateString('en-US', options)}</p>
-          <p className="text-muted">{today.toLocaleDateString('en-US', { weekday: 'long' })}</p>
+          <p className="text-h2">{new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(today)}</p>
+          <p className="text-muted">{new Intl.DateTimeFormat('en-GB', { weekday: 'long' }).format(today)}</p>
         </div>
       </div>
 
@@ -546,7 +546,7 @@ export const Dashboard: React.FC = () => {
             </motion.button>
             
             <motion.button 
-              onClick={() => navigate('/bulk-schedule')}
+              onClick={() => navigate('/directory')}
               whileHover={{ scale: 1.02 }} 
               className="btn btn-secondary" 
               style={{ width: '100%', justifyContent: 'flex-start', padding: '1rem', border: '1px solid var(--color-border)', cursor: 'pointer' }}
@@ -564,107 +564,96 @@ export const Dashboard: React.FC = () => {
 
         {/* Upcoming & Overdue Follow-ups */}
         <motion.div variants={item} className="bento-card" style={{ gridColumn: 'span 7' }}>
-          <h3 className="text-h3 mb-4 flex items-center gap-2"><Calendar size={20} className="text-primary"/> Scheduled Sessions</h3>
-          <div className="flex" style={{ flexDirection: 'column', gap: '1rem' }}>
-            
-            {/* Overdue Section */}
-            {overdueFollowUps.length > 0 && overdueFollowUps.map(fu => (
-              <div key={fu.id} className="flex flex-col mb-3">
-                <div className="flex items-center justify-between p-4 bg-gray-900/50 border border-gray-800 rounded-lg hover:bg-gray-800/50 transition-colors" style={{ cursor: 'pointer' }} onClick={() => navigate(`/add-log?schedule_id=${fu.id}`)}>
-                  <div className="flex flex-col gap-1">
-                    <p className="text-sm font-semibold text-gray-200">{fu.PsychE_Students?.full_name}</p>
-                    <p className="text-xs text-gray-400 truncate max-w-[200px]">Reason: {toSentenceCase(fu.reason)}</p>
-                  </div>
-                  <div className="flex items-center gap-4">
-                    <span className="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-red-400 bg-red-400/10 border border-red-400/20 rounded-md">Overdue</span>
-                    <span className="text-sm font-medium text-gray-300">{formatDisplayDate(fu.scheduled_date)}</span>
-                    <div className="flex items-center gap-2 text-gray-500">
-                      <button 
-                        onClick={(e) => { e.stopPropagation(); setRescheduleId(fu.id); setNewDate(''); }}
-                        className="hover:text-white p-1 rounded transition-colors"
-                        style={{ background: 'none', border: 'none', cursor: 'pointer' }}
-                      >
-                        <Calendar size={16} />
-                      </button>
-                      <button 
-                        onClick={(e) => handleDeleteSession(e, fu.id)}
-                        className="hover:text-red-400 p-1 rounded transition-colors"
-                        style={{ background: 'none', border: 'none', cursor: 'pointer' }}
-                      >
-                        <Trash size={16} />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-                {rescheduleId === fu.id && (
-                  <div className="flex gap-2 items-center mt-2 pt-2 px-2">
-                    <input 
-                      type="date" 
-                      className="input flex-1" 
-                      style={{ padding: '0.25rem 0.5rem', fontSize: '0.875rem', backgroundColor: 'rgba(0,0,0,0.2)' }} 
-                      value={newDate} 
-                      onChange={(e) => setNewDate(e.target.value)} 
-                    />
-                    <button onClick={(e) => handleReschedule(e, fu.id)} className="text-emerald-400 p-1 hover:bg-emerald-500/10 rounded">
-                      <Check size={18} />
-                    </button>
-                    <button onClick={(e) => { e.stopPropagation(); setRescheduleId(null); setNewDate(''); }} className="text-gray-400 p-1 hover:bg-gray-500/10 rounded">
-                      <XCircle size={18} />
-                    </button>
-                  </div>
-                )}
-              </div>
-            ))}
+          <h3 className="text-h3 mb-4" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <Calendar size={20} style={{ color: 'var(--color-primary)' }} /> Scheduled Sessions
+          </h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
 
-            {/* Upcoming Section */}
-            {upcomingFollowUps.length === 0 && overdueFollowUps.length === 0 ? (
-              <p className="text-muted py-2">No pending sessions scheduled.</p>
+            {overdueFollowUps.length === 0 && upcomingFollowUps.length === 0 ? (
+              <p className="text-muted" style={{ padding: '1rem 0' }}>No pending sessions scheduled.</p>
             ) : (
-              upcomingFollowUps.map(fu => (
-              <div key={fu.id} className="flex flex-col mb-3">
-                <div className="flex items-center justify-between p-4 bg-gray-900/50 border border-gray-800 rounded-lg hover:bg-gray-800/50 transition-colors" style={{ cursor: 'pointer' }} onClick={() => navigate(`/add-log?schedule_id=${fu.id}`)}>
-                  <div className="flex flex-col gap-1">
-                    <p className="text-sm font-semibold text-gray-200">{fu.PsychE_Students?.full_name}</p>
-                    <p className="text-xs text-gray-400 truncate max-w-[200px]">Reason: {toSentenceCase(fu.reason)}</p>
-                  </div>
-                  <div className="flex items-center gap-4">
-                    <span className="text-sm font-medium text-gray-300">{formatDisplayDate(fu.scheduled_date)}</span>
-                    <div className="flex items-center gap-2 text-gray-500">
-                      <button 
-                        onClick={(e) => { e.stopPropagation(); setRescheduleId(fu.id); setNewDate(''); }}
-                        className="hover:text-white p-1 rounded transition-colors"
-                        style={{ background: 'none', border: 'none', cursor: 'pointer' }}
-                      >
-                        <Calendar size={16} />
-                      </button>
-                      <button 
-                        onClick={(e) => handleDeleteSession(e, fu.id)}
-                        className="hover:text-red-400 p-1 rounded transition-colors"
-                        style={{ background: 'none', border: 'none', cursor: 'pointer' }}
-                      >
-                        <Trash size={16} />
-                      </button>
+              [...overdueFollowUps.map(fu => ({ ...fu, _isOverdue: true })), ...upcomingFollowUps.map(fu => ({ ...fu, _isOverdue: false }))].map(fu => (
+                <div key={fu.id}>
+                  {/* ── Main Session Row ── */}
+                  <div
+                    onClick={() => navigate(`/add-log?schedule_id=${fu.id}`)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: '1rem',
+                      padding: '0.875rem 1rem',
+                      borderRadius: 'var(--radius-md)',
+                      backgroundColor: fu._isOverdue ? 'rgba(239, 68, 68, 0.04)' : 'rgba(255,255,255,0.02)',
+                      border: `1px solid ${fu._isOverdue ? 'rgba(239,68,68,0.15)' : 'rgba(255,255,255,0.06)'}`,
+                      cursor: 'pointer',
+                      transition: 'background-color 0.15s ease'
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.backgroundColor = fu._isOverdue ? 'rgba(239,68,68,0.08)' : 'rgba(255,255,255,0.05)'; }}
+                    onMouseLeave={e => { e.currentTarget.style.backgroundColor = fu._isOverdue ? 'rgba(239,68,68,0.04)' : 'rgba(255,255,255,0.02)'; }}
+                  >
+                    {/* Left: Identity */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', flex: 1, minWidth: 0 }}>
+                      <p style={{ fontWeight: 600, fontSize: '0.9375rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {fu.PsychE_Students?.full_name || 'Unknown Student'}
+                      </p>
+                      <p style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {toSentenceCase(fu.reason)}
+                      </p>
+                    </div>
+
+                    {/* Right: Status + Date + Actions */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem', flexShrink: 0 }}>
+                      {fu._isOverdue && (
+                        <span style={{ fontSize: '0.625rem', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', padding: '0.2rem 0.5rem', borderRadius: '4px', backgroundColor: 'rgba(239,68,68,0.12)', color: '#f87171', border: '1px solid rgba(239,68,68,0.25)', whiteSpace: 'nowrap' }}>
+                          Overdue
+                        </span>
+                      )}
+                      <span style={{ fontSize: '0.8125rem', fontWeight: 500, color: fu._isOverdue ? '#f87171' : 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>
+                        {formatDisplayDate(fu.scheduled_date)}
+                      </span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setRescheduleId(fu.id === rescheduleId ? null : fu.id); setNewDate(''); }}
+                          title="Reschedule"
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', display: 'flex', alignItems: 'center', padding: '0.375rem', borderRadius: '6px', transition: 'color 0.15s, background-color 0.15s' }}
+                          onMouseEnter={e => { e.currentTarget.style.color = 'var(--color-text)'; e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.06)'; }}
+                          onMouseLeave={e => { e.currentTarget.style.color = 'var(--color-text-muted)'; e.currentTarget.style.backgroundColor = 'transparent'; }}
+                        >
+                          <Calendar size={15} />
+                        </button>
+                        <button
+                          onClick={(e) => handleDeleteSession(e, fu.id)}
+                          title="Delete"
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', display: 'flex', alignItems: 'center', padding: '0.375rem', borderRadius: '6px', transition: 'color 0.15s, background-color 0.15s' }}
+                          onMouseEnter={e => { e.currentTarget.style.color = '#f87171'; e.currentTarget.style.backgroundColor = 'rgba(239,68,68,0.08)'; }}
+                          onMouseLeave={e => { e.currentTarget.style.color = 'var(--color-text-muted)'; e.currentTarget.style.backgroundColor = 'transparent'; }}
+                        >
+                          <Trash size={15} />
+                        </button>
+                      </div>
                     </div>
                   </div>
+
+                  {/* ── Inline Reschedule Row ── */}
+                  {rescheduleId === fu.id && (
+                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', padding: '0.5rem 1rem 0.5rem 1rem', backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: '0 0 var(--radius-md) var(--radius-md)', border: '1px solid rgba(255,255,255,0.06)', borderTop: 'none', marginTop: '-4px' }}>
+                      <input
+                        type="date"
+                        className="input"
+                        style={{ flex: 1, padding: '0.375rem 0.625rem', fontSize: '0.875rem' }}
+                        value={newDate}
+                        onChange={(e) => setNewDate(e.target.value)}
+                      />
+                      <button onClick={(e) => handleReschedule(e, fu.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#4ade80', display: 'flex', padding: '0.375rem' }}>
+                        <Check size={18} />
+                      </button>
+                      <button onClick={(e) => { e.stopPropagation(); setRescheduleId(null); setNewDate(''); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', display: 'flex', padding: '0.375rem' }}>
+                        <XCircle size={18} />
+                      </button>
+                    </div>
+                  )}
                 </div>
-                {rescheduleId === fu.id && (
-                  <div className="flex gap-2 items-center mt-2 pt-2 px-2">
-                    <input 
-                      type="date" 
-                      className="input flex-1" 
-                      style={{ padding: '0.25rem 0.5rem', fontSize: '0.875rem', backgroundColor: 'rgba(0,0,0,0.2)' }} 
-                      value={newDate} 
-                      onChange={(e) => setNewDate(e.target.value)} 
-                    />
-                    <button onClick={(e) => handleReschedule(e, fu.id)} className="text-emerald-400 p-1 hover:bg-emerald-500/10 rounded">
-                      <Check size={18} />
-                    </button>
-                    <button onClick={(e) => { e.stopPropagation(); setRescheduleId(null); setNewDate(''); }} className="text-gray-400 p-1 hover:bg-gray-500/10 rounded">
-                      <XCircle size={18} />
-                    </button>
-                  </div>
-                )}
-              </div>
               ))
             )}
           </div>

@@ -12,6 +12,8 @@ const SystemSettingsTab: React.FC = () => {
   const [allowedPins, setAllowedPins] = useState<string>('2001, 0987, 0999, 2580');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [courses, setCourses] = useState<any[]>([]);
+  const [newCourse, setNewCourse] = useState('');
 
   useEffect(() => {
     async function loadSettings() {
@@ -23,6 +25,10 @@ const SystemSettingsTab: React.FC = () => {
         const currentCapacity = await getDailyCapacity();
         setCapacity(currentCapacity);
       }
+      
+      const { data: coursesData } = await supabase.from('PsychE_Courses').select('*').order('course_name');
+      if (coursesData) setCourses(coursesData);
+      
       setLoading(false);
     }
     loadSettings();
@@ -48,6 +54,28 @@ const SystemSettingsTab: React.FC = () => {
       alert('Failed to save settings.');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleAddCourse = async () => {
+    if (!newCourse.trim()) return;
+    const { data, error } = await supabase.from('PsychE_Courses').insert([{ course_name: newCourse.trim() }]).select();
+    if (!error && data) {
+      setCourses([...courses, data[0]]);
+      setNewCourse('');
+    } else {
+      console.error('Error adding course:', error);
+      alert('Failed to add course.');
+    }
+  };
+
+  const handleDeleteCourse = async (id: string) => {
+    const { error } = await supabase.from('PsychE_Courses').delete().eq('id', id);
+    if (!error) {
+      setCourses(courses.filter(c => c.id !== id));
+    } else {
+      console.error('Error deleting course:', error);
+      alert('Failed to delete course.');
     }
   };
 
@@ -87,6 +115,33 @@ const SystemSettingsTab: React.FC = () => {
               placeholder="2001, 0987, 0999, 2580"
               style={{ maxWidth: '400px' }}
             />
+          </div>
+
+          <hr style={{ borderTop: '1px solid var(--color-border)', margin: '1rem 0' }} />
+
+          <div>
+            <label className="text-h3" style={{ fontSize: '1rem', display: 'block', marginBottom: '0.5rem' }}>Manage Courses</label>
+            <p className="text-muted mb-4" style={{ fontSize: '0.875rem' }}>Add or remove courses available in the student profile form.</p>
+            <div className="flex gap-2 mb-4">
+              <input 
+                type="text" 
+                className="input" 
+                placeholder="New Course Name"
+                value={newCourse}
+                onChange={(e) => setNewCourse(e.target.value)}
+                style={{ maxWidth: '300px' }}
+              />
+              <button type="button" onClick={handleAddCourse} className="btn btn-secondary" style={{ padding: '0.5rem 1rem' }}>Add</button>
+            </div>
+            <div className="flex gap-2 flex-wrap">
+              {courses.map(course => (
+                <div key={course.id} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', background: 'rgba(255,255,255,0.1)', padding: '0.25rem 0.75rem', borderRadius: '1rem', fontSize: '0.875rem' }}>
+                  {course.course_name}
+                  <button type="button" onClick={() => handleDeleteCourse(course.id)} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', fontSize: '1.2rem', lineHeight: 1 }}>&times;</button>
+                </div>
+              ))}
+              {courses.length === 0 && <span className="text-muted text-sm">No courses added yet.</span>}
+            </div>
           </div>
 
           <hr style={{ borderTop: '1px solid var(--color-border)', margin: '1rem 0' }} />

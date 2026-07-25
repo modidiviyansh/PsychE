@@ -24,11 +24,23 @@ export const AddStudent: React.FC = () => {
   const [mobile, setMobile] = useState('');
   const [email, setEmail] = useState('');
   const [course, setCourse] = useState('');
+  const [availableCourses, setAvailableCourses] = useState<any[]>([]);
   const [enrolledDate, setEnrolledDate] = useState(new Date().toISOString().split('T')[0]);
   const [profileImage, setProfileImage] = useState<string | null>(null);
 
   useEffect(() => {
     document.title = "UPsych : GCM Edition | Student Profile";
+    const fetchCourses = async () => {
+      try {
+        const { data, error } = await supabase.from('PsychE_Courses').select('*').order('course_name');
+        if (!error && data) {
+          setAvailableCourses(data);
+        }
+      } catch (err) {
+        console.error("Error fetching courses:", err);
+      }
+    };
+    fetchCourses();
   }, []);
 
   useEffect(() => {
@@ -86,15 +98,9 @@ export const AddStudent: React.FC = () => {
     e.preventDefault();
     
     // Strict Regex Validation (BUG-001 & BUG-002)
-    const idRegex = /^STU-\d{4}$/;
+    const idRegex = /^STU-\d{4}-\d{3,4}$/;
     if (!idRegex.test(studentId)) {
-      alert("ID must follow the format STU-XXXX");
-      return;
-    }
-
-    const courseRegex = /^[a-zA-Z0-9\s\-_]+$/;
-    if (!courseRegex.test(course)) {
-      alert("Course format is invalid. Please use only alphanumeric characters, spaces, and hyphens (e.g. 10th Grade, 12th Science).");
+      alert("ID must follow the format STU-YYYY-XXX");
       return;
     }
 
@@ -183,10 +189,12 @@ export const AddStudent: React.FC = () => {
                 required
                 type="text" 
                 className="input" 
-                placeholder="e.g. STU-2026-105"
+                placeholder="e.g. STU-2026-042"
+                pattern="^STU-\d{4}-\d{3,4}$"
                 value={studentId}
                 onChange={(e) => setStudentId(e.target.value)}
               />
+              <p className="text-xs text-gray-500 mt-1">Format: STU-YYYY-XXX</p>
             </div>
             <div style={{ flex: 1 }}>
               <label className="text-h3" style={{ fontSize: '0.875rem', display: 'block', marginBottom: '0.5rem' }}>Full Name *</label>
@@ -252,14 +260,17 @@ export const AddStudent: React.FC = () => {
           <div className="flex gap-4">
             <div style={{ flex: 1 }}>
               <label className="text-h3" style={{ fontSize: '0.875rem', display: 'block', marginBottom: '0.5rem' }}>Course / Class *</label>
-              <input 
+              <select 
                 required
-                type="text" 
-                className="input" 
-                placeholder="e.g. 10th Grade, Section A"
+                className="input w-full" 
                 value={course}
                 onChange={(e) => setCourse(e.target.value)}
-              />
+              >
+                <option value="" disabled>Select a course</option>
+                {availableCourses.map((c) => (
+                  <option key={c.id} value={c.course_name}>{c.course_name}</option>
+                ))}
+              </select>
             </div>
             <div style={{ flex: 1 }}>
               <label className="text-h3" style={{ fontSize: '0.875rem', display: 'block', marginBottom: '0.5rem' }}>Enrollment Date</label>
