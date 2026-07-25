@@ -89,7 +89,7 @@ export const Navbar: React.FC = () => {
             <BookOpen size={20} />
           </motion.div>
           <div className="flex" style={{ flexDirection: 'column' }}>
-            <span className="text-h3" style={{ letterSpacing: '-0.02em', lineHeight: '1.2' }}>PsychE CRM</span>
+            <span className="text-h3" style={{ letterSpacing: '-0.02em', lineHeight: '1.2' }}>UPsych : GCM Edition</span>
             <span className="text-muted" style={{ fontSize: '0.75rem', letterSpacing: '0.05em', textTransform: 'uppercase' }}>GCM Convent School</span>
           </div>
         </Link>

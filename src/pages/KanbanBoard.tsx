@@ -29,7 +29,7 @@ export const KanbanBoard: React.FC = () => {
   const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
-    document.title = "PsychE | Planner";
+    document.title = "UPsych : GCM Edition | Planner";
   }, []);
 
   useEffect(() => {

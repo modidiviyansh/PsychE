@@ -48,7 +48,7 @@ export const StudentProfile: React.FC = () => {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   useEffect(() => {
-    document.title = "PsychE | Student Profile";
+    document.title = "UPsych : GCM Edition | Student Profile";
   }, []);
 
   useEffect(() => {

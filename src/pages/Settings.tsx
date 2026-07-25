@@ -10,7 +10,6 @@ import { GlobalTagManager } from '../components/GlobalTagManager';
 const SystemSettingsTab: React.FC = () => {
   const [capacity, setCapacity] = useState<number>(7);
   const [allowedPins, setAllowedPins] = useState<string>('2001, 0987, 0999, 2580');
-  const [appVersion, setAppVersion] = useState<string>('2.0');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -20,7 +19,6 @@ const SystemSettingsTab: React.FC = () => {
       if (data) {
         setCapacity(data.daily_session_capacity || 7);
         if (data.allowed_pins) setAllowedPins(data.allowed_pins);
-        if (data.app_version) setAppVersion(data.app_version);
       } else {
         const currentCapacity = await getDailyCapacity();
         setCapacity(currentCapacity);
@@ -40,8 +38,7 @@ const SystemSettingsTab: React.FC = () => {
         .upsert({ 
           id: 1, 
           daily_session_capacity: capacity,
-          allowed_pins: allowedPins,
-          app_version: appVersion
+          allowed_pins: allowedPins
         });
         
       if (error) throw error;
@@ -96,16 +93,10 @@ const SystemSettingsTab: React.FC = () => {
 
           <div>
             <label className="text-h3" style={{ fontSize: '1rem', display: 'block', marginBottom: '0.5rem' }}>App Version</label>
-            <p className="text-muted mb-4" style={{ fontSize: '0.875rem' }}>Track the current version of the PsychE CRM application.</p>
-            <input 
-              required
-              type="text" 
-              className="input" 
-              value={appVersion}
-              onChange={(e) => setAppVersion(e.target.value)}
-              placeholder="2.0"
-              style={{ maxWidth: '200px' }}
-            />
+            <p className="text-muted mb-4" style={{ fontSize: '0.875rem' }}>Current version of the UPsych : GCM Edition application.</p>
+            <div className="input" style={{ maxWidth: '200px', backgroundColor: 'var(--color-bg-alt)', opacity: 0.8, cursor: 'not-allowed' }}>
+              Version: 3.0.0
+            </div>
           </div>
 
           <div className="flex justify-start mt-4">

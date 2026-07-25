@@ -73,7 +73,7 @@ export const ReportExport: React.FC = () => {
         {/* Header */}
         <div style={{ borderBottom: '2px solid #000', paddingBottom: '1rem', marginBottom: '2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
           <div>
-            <h1 style={{ margin: 0, fontSize: '2rem', fontWeight: 'bold' }}>PsychE Official Transcript</h1>
+            <h1 style={{ margin: 0, fontSize: '2rem', fontWeight: 'bold' }}>UPsych : GCM Edition Official Transcript</h1>
             <p style={{ margin: '0.5rem 0 0 0', fontSize: '1rem', color: '#555' }}>Counseling & Assessment Statement</p>
           </div>
           <div style={{ textAlign: 'right', fontSize: '0.875rem' }}>
@@ -178,7 +178,7 @@ export const ReportExport: React.FC = () => {
         {/* Footer */}
         <div style={{ marginTop: '3rem', paddingTop: '1rem', borderTop: '2px solid #000', textAlign: 'center', fontSize: '0.875rem', color: '#777' }}>
           <p style={{ margin: 0 }}>End of Statement</p>
-          <p style={{ margin: '0.25rem 0 0 0' }}>PsychE CRM • Confidential Record</p>
+          <p style={{ margin: '0.25rem 0 0 0' }}>UPsych : GCM Edition • Confidential Record</p>
         </div>
       </div>
     </div>

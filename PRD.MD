@@ -67,3 +67,19 @@ The application has been upgraded to **Version 2.0**, introducing proactive task
 * **PIN Access Screen:** The entire application is protected by a glassmorphic PIN entry screen.
 * **Dynamic Settings:** Authorized security PINs and the current App Version string are stored in the database (`PsychE_Settings`) and can be managed directly via the UI.
 * **High-Risk Flagging:** Students tagged as high-risk are heavily highlighted across the Kanban board and Dashboard for immediate triage.
+
+## 7. Version 3.0 Changes (Relational Assessment CMS & Global Tags)
+The application has been upgraded to **Version 3.0**, introducing a robust, relational schema and enterprise-grade CMS features to handle complex psychological assessments and student tracking:
+
+### 7.1. Assessment Library CMS (Master-Detail Architecture)
+* **Relational Schema:** Migrated from a monolithic JSON structure to a fully relational database model (`PsychE_Modules` and `PsychE_Questions`), allowing for scalable and complex questionnaires.
+* **Apple-Style Master-Detail Interface:** A premium, two-pane UI (Master list of modules on the left, Question detail view on the right) for managing the assessment library.
+* **Question Management:** Support for reverse-scoring logic, active/inactive toggles (soft-deletes), and custom labeling (Likert and custom MCQ).
+* **One-Time Edit Lock:** Formal test modules can be locked; questions within locked modules can only be edited once, preventing accidental corruption of standardized testing material.
+* **Smart Keywords:** Inline pill-badge keyword manager for modules to trigger dynamic test suggestions during counseling logs.
+
+### 7.2. Global Tagging System
+* **Global System Tags:** A dedicated manager for administrators to create categorized "Problem System" tags (e.g., Behavioral, Academic, Career, Custom).
+* **Enterprise Data Grid:** A highly scannable, premium table interface with color swatches and categorization to manage tags.
+* **Student Tag Assignment:** Ability to assign these global tags directly to student profiles via junction tables (`PsychE_Student_Tags`), allowing for rapid identification of specific issues across the student body.
+* **Aesthetics & Micro-Interactions:** Upgraded UI with glassmorphic elements, staggered fade-in animations, inline editing toolbars, and premium hover states.

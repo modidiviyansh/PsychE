@@ -107,7 +107,7 @@ export const PinScreen: React.FC<PinScreenProps> = ({ children }) => {
         
         <h2 className="text-h2 mb-2" style={{ textAlign: 'center' }}>Restricted Access</h2>
         <p className="text-muted mb-6" style={{ textAlign: 'center', fontSize: '0.875rem' }}>
-          Please enter your counselor PIN to access the PsychE Dashboard.
+          Please enter your counselor PIN to access the UPsych : GCM Edition Dashboard.
         </p>
 
         <form onSubmit={handleSubmit} style={{ width: '100%' }}>

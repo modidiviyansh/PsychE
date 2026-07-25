@@ -37,7 +37,7 @@ export const Dashboard: React.FC = () => {
   const [newDate, setNewDate] = useState('');
 
   useEffect(() => {
-    document.title = "PsychE | Dashboard";
+    document.title = "UPsych : GCM Edition | Dashboard";
   }, []);
 
   useEffect(() => {
@@ -257,7 +257,7 @@ export const Dashboard: React.FC = () => {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.setAttribute('download', 'PsychE_Student_Import_Template.csv');
+    link.setAttribute('download', 'UPsych_Student_Import_Template.csv');
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -569,30 +569,26 @@ export const Dashboard: React.FC = () => {
             
             {/* Overdue Section */}
             {overdueFollowUps.length > 0 && overdueFollowUps.map(fu => (
-              <div key={fu.id} className="flex flex-col p-3" style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', borderRadius: 'var(--radius-md)', border: '1px solid rgba(239, 68, 68, 0.3)' }}>
-                <div className="flex justify-between items-start" style={{ cursor: 'pointer' }} onClick={() => navigate(`/add-log?schedule_id=${fu.id}`)}>
-                  <div>
-                    <div className="flex items-center gap-2 mb-1">
-                      <p style={{ fontWeight: 600, color: '#ef4444' }}>{fu.PsychE_Students?.full_name}</p>
-                      <span style={{ fontSize: '0.65rem', backgroundColor: '#ef4444', color: 'white', padding: '2px 6px', borderRadius: '4px', fontWeight: 600, textTransform: 'uppercase' }}>Overdue</span>
-                    </div>
-                    <p className="text-muted" style={{ fontSize: '0.875rem', marginBottom: '0.5rem' }}>Reason: {toSentenceCase(fu.reason)}</p>
+              <div key={fu.id} className="flex flex-col mb-3">
+                <div className="flex items-center justify-between p-4 bg-gray-900/50 border border-gray-800 rounded-lg hover:bg-gray-800/50 transition-colors" style={{ cursor: 'pointer' }} onClick={() => navigate(`/add-log?schedule_id=${fu.id}`)}>
+                  <div className="flex flex-col gap-1">
+                    <p className="text-sm font-semibold text-gray-200">{fu.PsychE_Students?.full_name}</p>
+                    <p className="text-xs text-gray-400 truncate max-w-[200px]">Reason: {toSentenceCase(fu.reason)}</p>
                   </div>
-                  <div className="flex flex-col items-end gap-2">
-                    <div style={{ backgroundColor: 'rgba(239, 68, 68, 0.2)', color: '#ef4444', padding: '0.25rem 0.75rem', borderRadius: 'var(--radius-full)', fontSize: '0.875rem', fontWeight: 600 }}>
-                      {formatDisplayDate(fu.scheduled_date)}
-                    </div>
-                    <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-4">
+                    <span className="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-red-400 bg-red-400/10 border border-red-400/20 rounded-md">Overdue</span>
+                    <span className="text-sm font-medium text-gray-300">{formatDisplayDate(fu.scheduled_date)}</span>
+                    <div className="flex items-center gap-2 text-gray-500">
                       <button 
                         onClick={(e) => { e.stopPropagation(); setRescheduleId(fu.id); setNewDate(''); }}
-                        className="text-gray-400 hover:text-white p-1 rounded transition-colors"
+                        className="hover:text-white p-1 rounded transition-colors"
                         style={{ background: 'none', border: 'none', cursor: 'pointer' }}
                       >
                         <Calendar size={16} />
                       </button>
                       <button 
                         onClick={(e) => handleDeleteSession(e, fu.id)}
-                        className="text-red-400 hover:bg-red-500/10 p-1 rounded transition-colors"
+                        className="hover:text-red-400 p-1 rounded transition-colors"
                         style={{ background: 'none', border: 'none', cursor: 'pointer' }}
                       >
                         <Trash size={16} />
@@ -601,7 +597,7 @@ export const Dashboard: React.FC = () => {
                   </div>
                 </div>
                 {rescheduleId === fu.id && (
-                  <div className="flex gap-2 items-center mt-2 pt-2" style={{ borderTop: '1px solid rgba(239, 68, 68, 0.2)' }}>
+                  <div className="flex gap-2 items-center mt-2 pt-2 px-2">
                     <input 
                       type="date" 
                       className="input flex-1" 
@@ -625,52 +621,50 @@ export const Dashboard: React.FC = () => {
               <p className="text-muted py-2">No pending sessions scheduled.</p>
             ) : (
               upcomingFollowUps.map(fu => (
-                <div key={fu.id} className="flex flex-col p-3" style={{ backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)' }}>
-                  <div className="flex justify-between items-start" style={{ cursor: 'pointer' }} onClick={() => navigate(`/add-log?schedule_id=${fu.id}`)}>
-                    <div>
-                      <p style={{ fontWeight: 600, marginBottom: '0.25rem' }}>{fu.PsychE_Students?.full_name}</p>
-                      <p className="text-muted" style={{ fontSize: '0.875rem', marginBottom: '0.5rem' }}>Reason: {toSentenceCase(fu.reason)}</p>
-                    </div>
-                    <div className="flex flex-col items-end gap-2">
-                      <div style={{ backgroundColor: 'rgba(94, 106, 210, 0.1)', color: 'var(--color-primary)', padding: '0.25rem 0.75rem', borderRadius: 'var(--radius-full)', fontSize: '0.875rem', fontWeight: 600 }}>
-                        {formatDisplayDate(fu.scheduled_date)}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button 
-                          onClick={(e) => { e.stopPropagation(); setRescheduleId(fu.id); setNewDate(''); }}
-                          className="text-gray-400 hover:text-white p-1 rounded transition-colors"
-                          style={{ background: 'none', border: 'none', cursor: 'pointer' }}
-                        >
-                          <Calendar size={16} />
-                        </button>
-                        <button 
-                          onClick={(e) => handleDeleteSession(e, fu.id)}
-                          className="text-red-400 hover:bg-red-500/10 p-1 rounded transition-colors"
-                          style={{ background: 'none', border: 'none', cursor: 'pointer' }}
-                        >
-                          <Trash size={16} />
-                        </button>
-                      </div>
+              <div key={fu.id} className="flex flex-col mb-3">
+                <div className="flex items-center justify-between p-4 bg-gray-900/50 border border-gray-800 rounded-lg hover:bg-gray-800/50 transition-colors" style={{ cursor: 'pointer' }} onClick={() => navigate(`/add-log?schedule_id=${fu.id}`)}>
+                  <div className="flex flex-col gap-1">
+                    <p className="text-sm font-semibold text-gray-200">{fu.PsychE_Students?.full_name}</p>
+                    <p className="text-xs text-gray-400 truncate max-w-[200px]">Reason: {toSentenceCase(fu.reason)}</p>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <span className="text-sm font-medium text-gray-300">{formatDisplayDate(fu.scheduled_date)}</span>
+                    <div className="flex items-center gap-2 text-gray-500">
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); setRescheduleId(fu.id); setNewDate(''); }}
+                        className="hover:text-white p-1 rounded transition-colors"
+                        style={{ background: 'none', border: 'none', cursor: 'pointer' }}
+                      >
+                        <Calendar size={16} />
+                      </button>
+                      <button 
+                        onClick={(e) => handleDeleteSession(e, fu.id)}
+                        className="hover:text-red-400 p-1 rounded transition-colors"
+                        style={{ background: 'none', border: 'none', cursor: 'pointer' }}
+                      >
+                        <Trash size={16} />
+                      </button>
                     </div>
                   </div>
-                  {rescheduleId === fu.id && (
-                    <div className="flex gap-2 items-center mt-2 pt-2" style={{ borderTop: '1px solid var(--color-border)' }}>
-                      <input 
-                        type="date" 
-                        className="input flex-1" 
-                        style={{ padding: '0.25rem 0.5rem', fontSize: '0.875rem', backgroundColor: 'rgba(0,0,0,0.2)' }} 
-                        value={newDate} 
-                        onChange={(e) => setNewDate(e.target.value)} 
-                      />
-                      <button onClick={(e) => handleReschedule(e, fu.id)} className="text-emerald-400 p-1 hover:bg-emerald-500/10 rounded">
-                        <Check size={18} />
-                      </button>
-                      <button onClick={(e) => { e.stopPropagation(); setRescheduleId(null); setNewDate(''); }} className="text-gray-400 p-1 hover:bg-gray-500/10 rounded">
-                        <XCircle size={18} />
-                      </button>
-                    </div>
-                  )}
                 </div>
+                {rescheduleId === fu.id && (
+                  <div className="flex gap-2 items-center mt-2 pt-2 px-2">
+                    <input 
+                      type="date" 
+                      className="input flex-1" 
+                      style={{ padding: '0.25rem 0.5rem', fontSize: '0.875rem', backgroundColor: 'rgba(0,0,0,0.2)' }} 
+                      value={newDate} 
+                      onChange={(e) => setNewDate(e.target.value)} 
+                    />
+                    <button onClick={(e) => handleReschedule(e, fu.id)} className="text-emerald-400 p-1 hover:bg-emerald-500/10 rounded">
+                      <Check size={18} />
+                    </button>
+                    <button onClick={(e) => { e.stopPropagation(); setRescheduleId(null); setNewDate(''); }} className="text-gray-400 p-1 hover:bg-gray-500/10 rounded">
+                      <XCircle size={18} />
+                    </button>
+                  </div>
+                )}
+              </div>
               ))
             )}
           </div>

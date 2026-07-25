@@ -28,7 +28,7 @@ export const AddStudent: React.FC = () => {
   const [profileImage, setProfileImage] = useState<string | null>(null);
 
   useEffect(() => {
-    document.title = "PsychE | Student Profile";
+    document.title = "UPsych : GCM Edition | Student Profile";
   }, []);
 
   useEffect(() => {

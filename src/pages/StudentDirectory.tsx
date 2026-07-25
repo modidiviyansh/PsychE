@@ -18,6 +18,8 @@ export const StudentDirectory: React.FC = () => {
   // Tag Filter State
   const [systemTags, setSystemTags] = useState<any[]>([]);
   const [selectedTagId, setSelectedTagId] = useState<string>('');
+  const [selectedCategory, setSelectedCategory] = useState<string>('');
+  const [availableCategories, setAvailableCategories] = useState<string[]>([]);
   
   // Selection State
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -29,7 +31,11 @@ export const StudentDirectory: React.FC = () => {
   useEffect(() => {
     async function init() {
       const { data } = await supabase.from('PsychE_System_Tags').select('*');
-      if (data) setSystemTags(data);
+      if (data) {
+        setSystemTags(data);
+        const categories = Array.from(new Set(data.map(tag => tag.tag_category).filter(Boolean))) as string[];
+        setAvailableCategories(categories);
+      }
     }
     init();
   }, []);
@@ -184,11 +190,29 @@ export const StudentDirectory: React.FC = () => {
           <div style={{ width: '250px' }}>
             <select 
               className="input w-full"
+              value={selectedCategory}
+              onChange={(e) => {
+                setSelectedCategory(e.target.value);
+                setSelectedTagId(''); // Reset tag when category changes
+              }}
+            >
+              <option value="">All Categories</option>
+              {availableCategories.map(cat => (
+                <option key={cat} value={cat}>{cat}</option>
+              ))}
+            </select>
+          </div>
+          <div style={{ width: '250px' }}>
+            <select 
+              className="input w-full"
               value={selectedTagId}
               onChange={(e) => setSelectedTagId(e.target.value)}
+              disabled={!selectedCategory && systemTags.length > 0} // Optional disable logic: disabled={!selectedCategory} if strictly enforced
             >
-              <option value="">All Tags</option>
-              {systemTags.map(tag => (
+              <option value="">All Tags {selectedCategory ? `in ${selectedCategory}` : ''}</option>
+              {systemTags
+                .filter(tag => !selectedCategory || tag.tag_category === selectedCategory)
+                .map(tag => (
                 <option key={tag.id} value={tag.id}>{tag.tag_name}</option>
               ))}
             </select>

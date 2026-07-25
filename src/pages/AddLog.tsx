@@ -75,7 +75,7 @@ export const AddLog: React.FC = () => {
   }, [studentUuid, scheduleId]);
 
   useEffect(() => {
-    document.title = "PsychE | Log Session";
+    document.title = "UPsych : GCM Edition | Log Session";
   }, []);
 
   useEffect(() => {
