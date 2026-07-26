@@ -146,7 +146,7 @@ export const BulkSchedule: React.FC = () => {
   return (
     <motion.div variants={container} initial="hidden" animate="show" style={{ padding: '1rem 0', maxWidth: '1000px', margin: '0 auto' }}>
       
-      <div className="flex justify-between items-center mb-6">
+      <div className="flex justify-between items-center mb-6 mobile-stack mobile-stack-start" style={{ gap: '1rem' }}>
         <div>
           <button onClick={() => navigate(-1)} className="btn btn-secondary mb-4" style={{ padding: '0.25rem 0.5rem', fontSize: '0.875rem', backgroundColor: 'transparent', border: 'none' }}>
             <ArrowLeft size={16} /> Back
@@ -157,7 +157,7 @@ export const BulkSchedule: React.FC = () => {
       </div>
 
       <div className="bento-grid">
-        <motion.div className="bento-card" style={{ gridColumn: 'span 4' }}>
+        <motion.div className="bento-card col-span-4">
           <h3 className="text-h3 mb-4">Configuration</h3>
           
           <div className="mb-6">
@@ -190,11 +190,11 @@ export const BulkSchedule: React.FC = () => {
           </motion.button>
         </motion.div>
 
-        <motion.div className="bento-card" style={{ gridColumn: 'span 8', padding: '0' }}>
+        <motion.div className="bento-card col-span-8" style={{ padding: '0' }}>
           {loading ? (
             <div className="p-8 text-center text-muted">Loading students...</div>
           ) : (
-            <div className="overflow-y-auto max-h-[500px]">
+            <div className="table-scroll" style={{ overflowX: 'auto', maxHeight: '500px' }}>
               <table className="w-full text-left" style={{ borderCollapse: 'collapse' }}>
                 <thead className="sticky top-0 bg-gray-900 z-10">
                   <tr style={{ borderBottom: '1px solid var(--color-border)', color: 'var(--color-text-muted)' }}>

@@ -233,7 +233,7 @@ export const KanbanBoard: React.FC = () => {
 
       const { data: logsData, error: logsError } = await supabase
         .from('PsychE_Counseling_Logs')
-        .select(`id, scheduled_date, reason, student_uuid, PsychE_Students (full_name, risk_level, engagement_modifier)`)
+        .select(`id, scheduled_date, reason, student_uuid, PsychE_Students (full_name, risk_level, engagement_modifier, student_id)`)
         .eq('session_status', 'Scheduled')
         .lte('scheduled_date', endStr)
         .order('scheduled_date', { ascending: true });
@@ -477,7 +477,7 @@ export const KanbanBoard: React.FC = () => {
                           {/* Left: Name + Risk */}
                           <div
                             style={{ flex: 1, minWidth: 0, cursor: 'pointer' }}
-                            onClick={() => navigate(`/student/${log.student_uuid}`)}
+                            onClick={() => navigate(`/student/${student?.student_id || log.student_uuid}`)}
                           >
                             <p style={{ fontWeight: 700, fontSize: '0.9375rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                               {student?.full_name}

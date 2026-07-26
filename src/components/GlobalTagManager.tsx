@@ -194,7 +194,7 @@ export const GlobalTagManager: React.FC = () => {
       </form>
 
       {/* ── Data Grid ── */}
-      <div style={styles.tableContainer}>
+      <div className="table-scroll" style={styles.tableContainer}>
         {loading ? (
           <div style={styles.emptyState}>
             <Loader2 size={22} color="#5e6ad2" style={{ animation: 'spin 1s linear infinite' }} />

@@ -298,7 +298,7 @@ export const StudentDirectory: React.FC = () => {
       {/* --- UI View --- */}
       <div className="no-print">
         {/* Header */}
-        <div className="flex justify-between items-center mb-6">
+        <div className="flex justify-between items-center mb-6 mobile-stack mobile-stack-start" style={{ gap: '1rem' }}>
           <div>
             <button onClick={() => navigate(-1)} className="btn btn-secondary mb-4" style={{ padding: '0.25rem 0.5rem', fontSize: '0.875rem', backgroundColor: 'transparent', border: 'none' }}>
               <ArrowLeft size={16} /> Back
@@ -600,7 +600,7 @@ export const StudentDirectory: React.FC = () => {
           {loading ? (
             <p style={{ textAlign: 'center', padding: '3rem', color: 'var(--color-text-muted)' }}>Loading directory...</p>
           ) : (
-            <div style={{ overflowX: 'auto' }}>
+            <div className="table-scroll" style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
                 <colgroup>
                   <col style={{ width: '56px' }} />
@@ -638,7 +638,7 @@ export const StudentDirectory: React.FC = () => {
                         </button>
                       </td>
                       <td style={{ padding: '1rem 0.75rem', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        <span onClick={() => navigate(`/student/${student.id}`)} style={{ cursor: 'pointer', color: 'var(--color-text)' }}
+                        <span onClick={() => navigate(`/student/${student.student_id || student.id}`)} style={{ cursor: 'pointer', color: 'var(--color-text)' }}
                           onMouseEnter={e => { e.currentTarget.style.color = 'var(--color-primary)'; }}
                           onMouseLeave={e => { e.currentTarget.style.color = 'var(--color-text)'; }}>
                           {student.full_name}

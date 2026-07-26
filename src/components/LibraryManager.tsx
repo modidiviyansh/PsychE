@@ -322,7 +322,7 @@ export const LibraryManager: React.FC = () => {
               </div>
 
               {/* ── Question Table ───────────────────────────────────────── */}
-              <div style={css.tableWrapper}>
+              <div className="table-scroll" style={css.tableContainer}>
                 <table style={css.table}>
                   <thead>
                     <tr>

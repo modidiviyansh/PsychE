@@ -16,7 +16,7 @@ const item = {
 };
 
 export const StudentProfile: React.FC = () => {
-  const { id } = useParams();
+  const { studentId } = useParams();
   const navigate = useNavigate();
   const [student, setStudent] = useState<any>(null);
   const [logs, setLogs] = useState<any[]>([]);
@@ -54,12 +54,12 @@ export const StudentProfile: React.FC = () => {
 
   useEffect(() => {
     async function fetchStudentProfile() {
-      if (!id) return;
+      if (!studentId) return;
       try {
         const { data: studentData, error: studentError } = await supabase
           .from('PsychE_Students')
           .select('*')
-          .eq('id', id)
+          .eq('student_id', studentId)
           .single();
 
         if (studentError) throw studentError;
@@ -68,7 +68,7 @@ export const StudentProfile: React.FC = () => {
         const { data: logsData, error: logsError } = await supabase
           .from('PsychE_Counseling_Logs')
           .select('*')
-          .eq('student_uuid', id)
+          .eq('student_uuid', studentData.id)
           .order('session_date', { ascending: false });
 
         if (logsError) throw logsError;
@@ -82,7 +82,7 @@ export const StudentProfile: React.FC = () => {
         const { data: stTags } = await supabase
           .from('PsychE_Student_Tags')
           .select('tag_id, PsychE_System_Tags(*)')
-          .eq('student_uuid', id);
+          .eq('student_uuid', studentData.id);
         
         if (stTags) {
           setStudentTags(stTags.map((st: any) => st.PsychE_System_Tags).filter(Boolean));
@@ -96,7 +96,7 @@ export const StudentProfile: React.FC = () => {
     }
 
     fetchStudentProfile();
-  }, [id]);
+  }, [studentId]);
 
   const toggleExpand = (logId: string) => {
     setExpandedLogs(prev => {
@@ -126,23 +126,23 @@ export const StudentProfile: React.FC = () => {
 
   const handleGenerateReport = () => {
     if (reportType === 'allTime') {
-      navigate(`/report?studentId=${id}&allTime=true`);
+      navigate(`/report?studentId=${student.id}&allTime=true`);
     } else {
       if (!startDate || !endDate) {
         alert("Please select both start and end dates.");
         return;
       }
-      navigate(`/report?studentId=${id}&start=${startDate}&end=${endDate}`);
+      navigate(`/report?studentId=${student.id}&start=${startDate}&end=${endDate}`);
     }
   };
 
   const handleToggleTag = async (tag: any) => {
     const hasTag = studentTags.some(t => t.id === tag.id);
     if (hasTag) {
-      await supabase.from('PsychE_Student_Tags').delete().eq('student_uuid', id).eq('tag_id', tag.id);
+      await supabase.from('PsychE_Student_Tags').delete().eq('student_uuid', student.id).eq('tag_id', tag.id);
       setStudentTags(studentTags.filter(t => t.id !== tag.id));
     } else {
-      await supabase.from('PsychE_Student_Tags').insert([{ student_uuid: id, tag_id: tag.id }]);
+      await supabase.from('PsychE_Student_Tags').insert([{ student_uuid: student.id, tag_id: tag.id }]);
       setStudentTags([...studentTags, tag]);
     }
   };
@@ -163,7 +163,7 @@ export const StudentProfile: React.FC = () => {
     <motion.div variants={container} initial="hidden" animate="show" style={{ padding: '1rem 0' }}>
       
       {/* Header Actions */}
-      <motion.div variants={item} className="flex justify-between items-center mb-6 no-print">
+      <motion.div variants={item} className="flex justify-between items-center mb-6 no-print mobile-stack mobile-stack-start" style={{ gap: '1rem' }}>
         <div>
           <button onClick={() => navigate(-1)} className="btn btn-secondary mb-4" style={{ padding: '0.25rem 0.5rem', fontSize: '0.875rem', backgroundColor: 'transparent', border: 'none' }}>
             <ArrowLeft size={16} /> Back
@@ -227,11 +227,12 @@ export const StudentProfile: React.FC = () => {
 
       <div className="bento-grid">
         {/* Personal Details */}
-        <motion.div variants={item} className="bento-card" style={{ gridColumn: 'span 4' }}>
+        <motion.div variants={item} className="bento-card col-span-4">
           <h3 className="text-h3 mb-4">Personal Details</h3>
           <div className="flex" style={{ flexDirection: 'column', gap: '1.25rem' }}>
             
-            {/* Phone with Privacy Toggle */}
+            {/* Phone with Privacy Toggle — hidden if no data */}
+            {student.mobile && (
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div style={{ padding: '0.5rem', backgroundColor: 'var(--color-bg)', borderRadius: 'var(--radius-md)' }}><Phone size={16} className="text-primary"/></div>
@@ -244,8 +245,10 @@ export const StudentProfile: React.FC = () => {
                 {showPhone ? <EyeOff size={16} className="text-muted" /> : <Eye size={16} className="text-muted" />}
               </button>
             </div>
+            )}
 
-            {/* Email with Privacy Toggle */}
+            {/* Email with Privacy Toggle — hidden if no data */}
+            {student.email && (
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div style={{ padding: '0.5rem', backgroundColor: 'var(--color-bg)', borderRadius: 'var(--radius-md)' }}><Mail size={16} className="text-primary"/></div>
@@ -258,26 +261,35 @@ export const StudentProfile: React.FC = () => {
                 {showEmail ? <EyeOff size={16} className="text-muted" /> : <Eye size={16} className="text-muted" />}
               </button>
             </div>
+            )}
 
-            {/* Father */}
+            {/* Father — hidden if no data */}
+            {student.fathers_name && (
             <div className="flex items-center gap-3">
               <div style={{ padding: '0.5rem', backgroundColor: 'var(--color-bg)', borderRadius: 'var(--radius-md)' }}><User size={16} className="text-primary"/></div>
-              <div><p className="text-muted" style={{ fontSize: '0.75rem' }}>Father's Name</p><p style={{ fontWeight: 500 }}>{student.fathers_name || 'N/A'}</p></div>
+              <div><p className="text-muted" style={{ fontSize: '0.75rem' }}>Father's Name</p><p style={{ fontWeight: 500 }}>{student.fathers_name}</p></div>
             </div>
+            )}
 
-            {/* Mother */}
+            {/* Mother — hidden if no data */}
+            {student.mothers_name && (
             <div className="flex items-center gap-3">
               <div style={{ padding: '0.5rem', backgroundColor: 'var(--color-bg)', borderRadius: 'var(--radius-md)' }}><User size={16} className="text-primary"/></div>
-              <div><p className="text-muted" style={{ fontSize: '0.75rem' }}>Mother's Name</p><p style={{ fontWeight: 500 }}>{student.mothers_name || 'N/A'}</p></div>
+              <div><p className="text-muted" style={{ fontSize: '0.75rem' }}>Mother's Name</p><p style={{ fontWeight: 500 }}>{student.mothers_name}</p></div>
             </div>
+            )}
 
-            {/* Enrolled */}
+
+            {/* Enrolled — hidden if no data */}
+            {student.enrolled_date && (
             <div className="flex items-center gap-3">
               <div style={{ padding: '0.5rem', backgroundColor: 'var(--color-bg)', borderRadius: 'var(--radius-md)' }}><Calendar size={16} className="text-primary"/></div>
-              <div><p className="text-muted" style={{ fontSize: '0.75rem' }}>Enrolled</p><p style={{ fontWeight: 500 }}>{student.enrolled_date ? new Date(student.enrolled_date).toLocaleDateString() : 'N/A'}</p></div>
+              <div><p className="text-muted" style={{ fontSize: '0.75rem' }}>Enrolled</p><p style={{ fontWeight: 500 }}>{new Date(student.enrolled_date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</p></div>
             </div>
+            )}
 
           </div>
+
 
           {/* ── Tags Section (inside left card) ── */}
           <div className="no-print" style={{ marginTop: '1.5rem', paddingTop: '1.25rem', borderTop: '1px solid rgba(255,255,255,0.07)' }}>
@@ -335,8 +347,8 @@ export const StudentProfile: React.FC = () => {
         </motion.div>
 
         {/* History Timeline */}
-        <motion.div variants={item} className="bento-card" style={{ gridColumn: 'span 8' }}>
-          <div className="flex justify-between items-center mb-6">
+        <motion.div variants={item} className="bento-card col-span-8">
+          <div className="flex justify-between items-center mb-6 mobile-stack mobile-stack-start" style={{ gap: '1rem' }}>
             <h3 className="text-h3">Counseling History</h3>
             <motion.button 
               whileHover={{ scale: 1.05 }} 

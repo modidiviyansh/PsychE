@@ -289,7 +289,9 @@ export const AddLog: React.FC = () => {
         ]);
       }
       
-      navigate(studentUuid ? `/student/${studentUuid}` : '/');
+      const savedStudent = students.find(s => s.id === studentUuid);
+      const profileRoute = savedStudent?.student_id || studentUuid;
+      navigate(studentUuid ? `/student/${profileRoute}` : '/');
     } catch (error) {
       console.error('Error saving log:', error);
       alert('Failed to save log. See console for details.');
@@ -301,7 +303,7 @@ export const AddLog: React.FC = () => {
   return (
     <motion.div variants={container} initial="hidden" animate="show" style={{ padding: '1rem 0', maxWidth: '800px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '1.5rem', paddingBottom: '6rem' }}>
       
-      <div className="flex justify-between items-center">
+      <div className="flex justify-between items-center mobile-stack mobile-stack-start" style={{ gap: '1rem' }}>
         <div>
           <button onClick={() => navigate(-1)} className="btn btn-secondary mb-2" style={{ padding: '0.25rem 0.5rem', fontSize: '0.875rem', backgroundColor: 'transparent', border: 'none', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <ArrowLeft size={16} /> Back to Dashboard
@@ -332,7 +334,7 @@ export const AddLog: React.FC = () => {
         
         {/* TOP BENTO: Meta Info */}
         <motion.div className="bento-card" style={{ padding: '2rem' }}>
-          <div className="flex gap-4">
+          <div className="flex gap-4 mobile-stack">
             <div style={{ flex: 1 }}>
               <label className="text-h3" style={{ fontSize: '0.875rem', display: 'block', marginBottom: '0.5rem' }}>Select Student *</label>
               <select 
@@ -493,7 +495,7 @@ export const AddLog: React.FC = () => {
             
             {/* ACTION / CUSTOM DATE PICKER */}
             <div>
-              <div className="flex justify-between items-center mb-3">
+              <div className="flex justify-between items-center mb-3 mobile-stack mobile-stack-start" style={{ gap: '0.5rem' }}>
                 <label className="text-h3" style={{ fontSize: '1rem', margin: 0 }}>Schedule Next Touchpoint (Optional)</label>
                 <button 
                   type="button"

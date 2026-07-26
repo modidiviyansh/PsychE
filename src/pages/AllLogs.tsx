@@ -24,7 +24,7 @@ export const AllLogs: React.FC = () => {
             reason,
             session_date,
             student_uuid,
-            PsychE_Students (full_name)
+            PsychE_Students (full_name, student_id)
           `)
           .order('session_date', { ascending: false });
 
@@ -48,7 +48,7 @@ export const AllLogs: React.FC = () => {
 
   return (
     <motion.div variants={container} initial="hidden" animate="show" style={{ padding: '1rem 0' }}>
-      <div className="flex justify-between items-center mb-6">
+      <div className="flex justify-between items-center mb-6 mobile-stack mobile-stack-start" style={{ gap: '1rem' }}>
         <div>
           <button onClick={() => navigate(-1)} className="btn btn-secondary mb-4" style={{ padding: '0.25rem 0.5rem', fontSize: '0.875rem', backgroundColor: 'transparent', border: 'none' }}>
             <ArrowLeft size={16} /> Back
@@ -70,7 +70,7 @@ export const AllLogs: React.FC = () => {
             {logs.map((log) => (
               <motion.div 
                 key={log.id}
-                onClick={() => navigate(`/student/${log.student_uuid}`)}
+                onClick={() => navigate(`/student/${log.PsychE_Students?.student_id || log.student_uuid}`)}
                 whileHover={{ x: 5, backgroundColor: 'rgba(255,255,255,0.03)' }}
                 style={{ 
                   display: 'flex', 

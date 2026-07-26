@@ -11,6 +11,7 @@ import { KanbanBoard } from './pages/KanbanBoard';
 import { BulkSchedule } from './pages/BulkSchedule';
 import { PinScreen } from './components/PinScreen';
 import { ReportExport } from './pages/ReportExport';
+import { Analytics } from './pages/Analytics';
 
 export default function App() {
   return (
@@ -22,7 +23,7 @@ export default function App() {
           </PinScreen>
         }>
           <Route index element={<Dashboard />} />
-          <Route path="student/:id" element={<StudentProfile />} />
+          <Route path="student/:studentId" element={<StudentProfile />} />
           <Route path="add-log" element={<AddLog />} />
           <Route path="add-student" element={<AddStudent />} />
           <Route path="edit-student/:id" element={<AddStudent />} />
@@ -31,6 +32,7 @@ export default function App() {
           <Route path="settings" element={<Settings />} />
           <Route path="kanban" element={<KanbanBoard />} />
           <Route path="bulk-schedule" element={<BulkSchedule />} />
+          <Route path="analytics" element={<Analytics />} />
         </Route>
         <Route path="/report" element={<PinScreen><ReportExport /></PinScreen>} />
       </Routes>

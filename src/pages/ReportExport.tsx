@@ -140,7 +140,7 @@ export const ReportExport: React.FC = () => {
                           const maxPossible = a.type === 'COMPE' ? Object.keys(a.responses).length * 4 : 'N/A';
                           
                           return (
-                            <div key={i} style={{ marginBottom: '1rem', padding: '1rem', backgroundColor: '#fdfdfd', border: '1px solid #eee' }}>
+                            <div key={i} className="table-scroll" style={{ overflowX: 'auto', marginBottom: '1.5rem', backgroundColor: 'var(--color-surface)', borderRadius: 'var(--radius-md)', padding: '1rem', border: '1px solid var(--color-border)' }}>
                               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
                                 <strong style={{ fontSize: '1rem' }}>{a.title}</strong>
                                 <strong>Score: {totalScore}{maxPossible !== 'N/A' ? `/${maxPossible}` : ''}</strong>

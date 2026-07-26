@@ -73,7 +73,7 @@ export const Dashboard: React.FC = () => {
           reason,
           session_date,
           student_uuid,
-          PsychE_Students (full_name)
+          PsychE_Students (full_name, student_id)
         `)
         .lte('session_date', new Date().toISOString())
         .order('session_date', { ascending: false })
@@ -83,6 +83,7 @@ export const Dashboard: React.FC = () => {
         const formattedLogs = logsData.map((log: any) => ({
           id: log.id,
           student_uuid: log.student_uuid,
+          student_sid: log.PsychE_Students?.student_id,
           student: log.PsychE_Students?.full_name || 'Unknown Student',
           reason: toSentenceCase(log.reason),
           date: formatDisplayDate(log.session_date),
@@ -96,7 +97,7 @@ export const Dashboard: React.FC = () => {
         .from('PsychE_Counseling_Logs')
         .select(`
           id, reason, scheduled_date, student_uuid,
-          PsychE_Students (full_name)
+          PsychE_Students (full_name, student_id)
         `)
         .eq('session_status', 'Scheduled');
 
@@ -366,26 +367,26 @@ export const Dashboard: React.FC = () => {
       animate="show"
       style={{ padding: '1rem 0' }}
     >
-      <div className="flex justify-between items-center mb-6">
+      <div className="flex justify-between items-center mb-6 mobile-stack mobile-stack-start" style={{ gap: '1rem' }}>
         <div>
-          <h1 className="text-h1">Welcome back, Counselor</h1>
+          <h1 className="text-h1 break-words">Welcome back, Counselor</h1>
           <p className="text-muted">Here's what's happening at GCM Convent School today.</p>
         </div>
-        <div className="text-right">
-          <p className="text-h2">{new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(today)}</p>
+        <div className="text-right mobile-text-left">
+          <p className="text-h2 break-words">{new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(today)}</p>
           <p className="text-muted">{new Intl.DateTimeFormat('en-GB', { weekday: 'long' }).format(today)}</p>
         </div>
       </div>
 
       <div className="bento-grid">
         {/* Quick Add Log - Main Action */}
-        <motion.div variants={item} className="bento-card" style={{ gridColumn: 'span 8', position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+        <motion.div variants={item} className="bento-card col-span-8" style={{ position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
           <div style={{ position: 'absolute', top: '-50%', right: '-10%', width: '300px', height: '300px', background: 'radial-gradient(circle, rgba(94, 106, 210, 0.2) 0%, rgba(0,0,0,0) 70%)', borderRadius: '50%' }}></div>
           
           <h2 className="text-h2 mb-4">Log a New Session</h2>
           <p className="text-muted mb-6" style={{ maxWidth: '80%' }}>Quickly record a counseling session. Search for an existing student or add a new one inline to keep your records updated effortlessly.</p>
           
-          <div className="flex gap-4">
+          <div className="flex gap-4 flex-wrap">
             <motion.button 
               onClick={() => navigate('/add-log')}
               whileHover={{ scale: 1.05 }}
@@ -413,7 +414,7 @@ export const Dashboard: React.FC = () => {
         </motion.div>
 
         {/* Stats Summary */}
-        <motion.div variants={item} className="bento-card" style={{ gridColumn: 'span 4', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', height: '100%' }}>
+        <motion.div variants={item} className="bento-card col-span-4" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', height: '100%' }}>
           <div 
             onClick={() => navigate('/directory')}
             style={{ cursor: 'pointer', transition: 'all 0.2s', padding: '1rem', borderRadius: 'var(--radius-md)' }}
@@ -441,13 +442,13 @@ export const Dashboard: React.FC = () => {
         </motion.div>
 
         {/* Recent Activity Timeline */}
-        <motion.div variants={item} className="bento-card" style={{ gridColumn: 'span 7' }}>
+        <motion.div variants={item} className="bento-card col-span-7">
           <div className="flex justify-between items-center mb-6">
             <h3 className="text-h3 flex items-center gap-2"><Clock size={20} className="text-muted"/> Recent Logs</h3>
             <button onClick={() => navigate('/logs')} className="text-muted" style={{ fontSize: '0.875rem', display: 'flex', alignItems: 'center' }}>View all <ChevronRight size={16} /></button>
           </div>
           
-          <div className="flex" style={{ flexDirection: 'column', gap: '1rem' }}>
+          <div className="flex" style={{ flexDirection: 'column', gap: '1rem', minWidth: 0 }}>
             {loading ? (
               <p className="text-muted text-center py-4">Loading recent logs...</p>
             ) : recentLogs.length === 0 ? (
@@ -456,7 +457,7 @@ export const Dashboard: React.FC = () => {
               recentLogs.map((log) => (
                 <motion.div 
                   key={log.id}
-                  onClick={() => navigate(`/student/${log.student_uuid}`)}
+                  onClick={() => navigate(`/student/${log.student_sid || log.student_uuid}`)}
                   whileHover={{ x: 5, backgroundColor: 'rgba(255,255,255,0.03)' }}
                   style={{ 
                     display: 'flex', 
@@ -469,14 +470,14 @@ export const Dashboard: React.FC = () => {
                     border: '1px solid transparent'
                   }}
                 >
-                  <div className="flex items-center gap-4">
-                    <div style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: log.color }}></div>
-                    <div>
-                      <p style={{ fontWeight: 600 }}>{log.student}</p>
-                      <p className="text-muted" style={{ fontSize: '0.875rem' }}>{log.reason}</p>
+                  <div className="flex items-center gap-4" style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: log.color, flexShrink: 0 }}></div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{log.student}</p>
+                      <p className="text-muted" style={{ fontSize: '0.875rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{log.reason}</p>
                     </div>
                   </div>
-                  <div className="text-right text-muted" style={{ fontSize: '0.875rem' }}>
+                  <div className="text-right text-muted" style={{ fontSize: '0.875rem', flexShrink: 0, marginLeft: '0.5rem' }}>
                     {log.date}
                   </div>
                 </motion.div>
@@ -486,7 +487,7 @@ export const Dashboard: React.FC = () => {
         </motion.div>
 
         {/* Quick Actions / Shortcuts */}
-        <motion.div variants={item} className="bento-card" style={{ gridColumn: 'span 5', background: 'linear-gradient(to bottom right, var(--color-surface), rgba(94, 106, 210, 0.05))' }}>
+        <motion.div variants={item} className="bento-card col-span-5" style={{ background: 'linear-gradient(to bottom right, var(--color-surface), rgba(94, 106, 210, 0.05))' }}>
           <h3 className="text-h3 mb-4">Quick Links</h3>
           <div className="flex" style={{ flexDirection: 'column', gap: '0.75rem' }}>
             
@@ -498,7 +499,7 @@ export const Dashboard: React.FC = () => {
               onChange={handleBulkUpload}
             />
             
-            <div className="flex gap-2 w-full">
+            <div className="flex gap-2 w-full mobile-stack">
               <motion.button 
                 onClick={() => fileInputRef.current?.click()}
                 whileHover={{ scale: 1.02 }} 
@@ -563,11 +564,11 @@ export const Dashboard: React.FC = () => {
         </motion.div>
 
         {/* Upcoming & Overdue Follow-ups */}
-        <motion.div variants={item} className="bento-card" style={{ gridColumn: 'span 7' }}>
+        <motion.div variants={item} className="bento-card col-span-7">
           <h3 className="text-h3 mb-4" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <Calendar size={20} style={{ color: 'var(--color-primary)' }} /> Scheduled Sessions
           </h3>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', minWidth: 0 }}>
 
             {overdueFollowUps.length === 0 && upcomingFollowUps.length === 0 ? (
               <p className="text-muted" style={{ padding: '1rem 0' }}>No pending sessions scheduled.</p>
@@ -660,7 +661,7 @@ export const Dashboard: React.FC = () => {
         </motion.div>
 
         {/* High Risk Watchlist */}
-        <motion.div variants={item} className="bento-card" style={{ gridColumn: 'span 5', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
+        <motion.div variants={item} className="bento-card col-span-5" style={{ border: '1px solid rgba(239, 68, 68, 0.2)' }}>
           <h3 className="text-h3 mb-4 flex items-center gap-2" style={{ color: '#ef4444' }}><Users size={20} /> High Risk Watchlist</h3>
           <div className="flex" style={{ flexDirection: 'column', gap: '1rem', flex: 1 }}>
             {highRiskStudents.length === 0 ? (
@@ -670,7 +671,7 @@ export const Dashboard: React.FC = () => {
               </div>
             ) : (
               highRiskStudents.map(student => (
-                <div key={student.id} onClick={() => navigate(`/student/${student.id}`)} className="flex justify-between items-center p-3" style={{ backgroundColor: 'rgba(239, 68, 68, 0.05)', borderRadius: 'var(--radius-md)', cursor: 'pointer' }}>
+                <div key={student.id} onClick={() => navigate(`/student/${student.student_id || student.id}`)} className="flex justify-between items-center p-3" style={{ backgroundColor: 'rgba(239, 68, 68, 0.05)', borderRadius: 'var(--radius-md)', cursor: 'pointer' }}>
                   <div>
                     <p style={{ fontWeight: 600 }}>{student.full_name}</p>
                     <p className="text-muted" style={{ fontSize: '0.875rem' }}>{student.course}</p>

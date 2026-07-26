@@ -131,7 +131,8 @@ export const AddStudent: React.FC = () => {
       
       // Success - navigate to the new student's profile
       if (result.data?.id) {
-        navigate(`/student/${result.data.id}`);
+        // Navigate by student_id (human-readable) not UUID
+        navigate(`/student/${studentId}`);
       } else {
         navigate('/');
       }
@@ -146,7 +147,7 @@ export const AddStudent: React.FC = () => {
   return (
     <motion.div variants={container} initial="hidden" animate="show" style={{ padding: '1rem 0', maxWidth: '800px', margin: '0 auto' }}>
       
-      <div className="flex justify-between items-center mb-6" style={{ padding: '0 2rem' }}>
+      <div className="flex justify-between items-center mb-6 mobile-stack mobile-stack-start" style={{ padding: '0 2rem', gap: '1rem' }}>
         <div>
           <button onClick={() => navigate(-1)} className="btn btn-secondary mb-4" style={{ padding: '0.25rem 0.5rem', fontSize: '0.875rem', backgroundColor: 'transparent', border: 'none', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <ArrowLeft size={16} /> Back to Dashboard
@@ -173,16 +174,19 @@ export const AddStudent: React.FC = () => {
               )}
               <input 
                 type="file" 
-                accept="image/*" 
+                accept="image/jpeg, image/png" 
                 onChange={handleImageUpload}
                 style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', opacity: 0, cursor: 'pointer' }}
               />
             </div>
-            <p className="text-gray-400 text-sm" style={{ fontSize: '0.875rem' }}>Click to upload photo (Max 100kb)</p>
-            <p className="text-xs text-gray-500 mt-2">Acceptable formats: .jpg, .png</p>
+            <p style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted)', fontWeight: 500 }}>Click to upload photo · Max 100 KB</p>
+            <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.25rem' }}>
+              <span style={{ fontSize: '0.6875rem', fontWeight: 700, padding: '0.15rem 0.5rem', borderRadius: '4px', backgroundColor: 'rgba(94,106,210,0.12)', color: 'var(--color-primary)', border: '1px solid rgba(94,106,210,0.25)' }}>.JPG</span>
+              <span style={{ fontSize: '0.6875rem', fontWeight: 700, padding: '0.15rem 0.5rem', borderRadius: '4px', backgroundColor: 'rgba(94,106,210,0.12)', color: 'var(--color-primary)', border: '1px solid rgba(94,106,210,0.25)' }}>.PNG</span>
+            </div>
           </div>
 
-          <div className="flex gap-4">
+          <div className="flex gap-4 mobile-stack">
             <div style={{ flex: 1 }}>
               <label className="text-h3" style={{ fontSize: '0.875rem', display: 'block', marginBottom: '0.5rem' }}>Student ID *</label>
               <input 
@@ -209,7 +213,7 @@ export const AddStudent: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex gap-4">
+          <div className="flex gap-4 mobile-stack">
             <div style={{ flex: 1 }}>
               <label className="text-h3" style={{ fontSize: '0.875rem', display: 'block', marginBottom: '0.5rem' }}>Father's Name</label>
               <input 
@@ -232,7 +236,7 @@ export const AddStudent: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex gap-4">
+          <div className="flex gap-4 mobile-stack">
             <div style={{ flex: 1 }}>
               <label className="text-h3" style={{ fontSize: '0.875rem', display: 'block', marginBottom: '0.5rem' }}>Mobile Number <span className="text-red-500 ml-1">*</span></label>
               <input 
@@ -257,7 +261,7 @@ export const AddStudent: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex gap-4">
+          <div className="flex gap-4 mobile-stack">
             <div style={{ flex: 1 }}>
               <label className="text-h3" style={{ fontSize: '0.875rem', display: 'block', marginBottom: '0.5rem' }}>Course / Class *</label>
               <select 

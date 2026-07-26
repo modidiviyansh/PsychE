@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, UserPlus, Activity, LogOut, BookOpen, Users, Settings as SettingsIcon, LayoutDashboard, X } from 'lucide-react';
+import { Search, UserPlus, Activity, LogOut, BookOpen, Users, Settings as SettingsIcon, LayoutDashboard, X, BarChart2 } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from '../lib/supabase';
@@ -45,10 +45,10 @@ export const Navbar: React.FC = () => {
     return () => clearTimeout(debounceTimer);
   }, [searchQuery]);
 
-  const handleSelectStudent = (id: string) => {
+  const handleSelectStudent = (studentId: string) => {
     setSearchQuery('');
     setSearchResults([]);
-    navigate(`/student/${id}`);
+    navigate(`/student/${studentId}`);
   };
 
   return (
@@ -56,12 +56,13 @@ export const Navbar: React.FC = () => {
       initial={{ y: -50, opacity: 0 }}
       animate={{ y: 0, opacity: 1 }}
       transition={{ duration: 0.5, ease: 'easeOut' }}
-      className="navbar no-print" 
+      className="navbar no-print mobile-stack" 
       style={{
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
         padding: '1rem 2rem',
+        gap: '1rem',
         backgroundColor: 'rgba(24, 27, 33, 0.8)',
         backdropFilter: 'blur(12px)',
         borderBottom: '1px solid var(--color-border)',
@@ -95,7 +96,7 @@ export const Navbar: React.FC = () => {
         </Link>
       </div>
 
-      <div className="flex items-center justify-center" style={{ flexGrow: 1, maxWidth: '600px', margin: '0 2rem' }} ref={searchRef}>
+      <div className="flex items-center justify-center hidden-mobile" style={{ flexGrow: 1, maxWidth: '600px', margin: '0 2rem' }} ref={searchRef}>
         <motion.div 
           whileFocus={{ scale: 1.02 }}
           style={{ position: 'relative', width: '100%' }}
@@ -152,7 +153,7 @@ export const Navbar: React.FC = () => {
                 {searchResults.map((student) => (
                   <div 
                     key={student.id}
-                    onClick={() => handleSelectStudent(student.id)}
+                    onClick={() => handleSelectStudent(student.student_id)}
                     style={{
                       padding: '0.75rem 1rem',
                       cursor: 'pointer',
@@ -195,7 +196,7 @@ export const Navbar: React.FC = () => {
         </motion.div>
       </div>
 
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-4 flex-wrap justify-center">
         <motion.button 
           onClick={() => navigate('/directory')}
           whileHover={{ scale: 1.05 }}
@@ -223,6 +224,14 @@ export const Navbar: React.FC = () => {
           Add Student
         </motion.button>
         <div style={{ width: '1px', height: '24px', backgroundColor: 'var(--color-border)' }}></div>
+        <motion.button 
+          onClick={() => navigate('/analytics')}
+          whileHover={{ scale: 1.1, color: 'var(--color-primary)' }}
+          whileTap={{ scale: 0.95 }}
+          className="btn btn-secondary" style={{ padding: '0.5rem', background: 'transparent', border: 'none' }} title="Analytics"
+        >
+          <BarChart2 size={20} />
+        </motion.button>
         <motion.button 
           onClick={() => navigate('/kanban')}
           whileHover={{ scale: 1.1, color: 'var(--color-primary)' }}
