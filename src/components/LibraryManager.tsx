@@ -1,1037 +1,917 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { supabase } from '../lib/supabase';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
-  BookOpen, Plus, X, Lock, Edit2, CheckCircle2, XCircle,
-  Loader2, Hash, ChevronRight, Tag, RotateCcw,
+  BookOpen, Plus, Lock, Unlock, Search, X, ChevronRight,
+  ToggleLeft, ToggleRight, Trash2, Save, AlertTriangle, Check
 } from 'lucide-react';
+import { supabase } from '../lib/supabase';
+import type { Module, Question, ModuleType, QuestionLabels } from '../types';
+import { DEFAULT_LABELS } from '../types';
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-interface Module {
-  id: string;
-  name: string;
-  type: string;
-  description?: string;
-  smart_keywords: string[];
-  is_locked?: boolean;
-  created_at: string;
+// =============================================================================
+//  Types
+// =============================================================================
+
+interface ModuleWithCount extends Module {
+  question_count: number;
 }
 
-interface Question {
-  id: string;
-  module_id: string;
-  prompt_text: string;
-  is_active: boolean;
-  has_been_edited: boolean;
-  is_reverse_scored?: boolean;
-  custom_labels?: Record<string, string> | null;
-  created_at: string;
+interface LockModalState {
+  open: boolean;
+  moduleId: string | null;
 }
 
-// ─── Main Component ───────────────────────────────────────────────────────────
-export const LibraryManager: React.FC = () => {
-  // ── State ──────────────────────────────────────────────────────────────────
-  const [modules, setModules]                 = useState<Module[]>([]);
-  const [selectedModuleId, setSelectedModuleId] = useState<string | null>(null);
-  const [questions, setQuestions]             = useState<Question[]>([]);
-  const [newKeyword, setNewKeyword]           = useState('');
-  const [loading, setLoading]                 = useState(true);
-  const [newModuleName, setNewModuleName]     = useState('');
-  const [addingModule, setAddingModule]       = useState(false);
-  const [showAddModuleInput, setShowAddModuleInput] = useState(false);
+interface DeleteQModalState {
+  open: boolean;
+  question: Question | null;
+}
 
-  // Edit state
-  const [editingQuestionId, setEditingQuestionId] = useState<string | null>(null);
-  const [editPromptText, setEditPromptText]       = useState('');
-  const [savingEdit, setSavingEdit]               = useState(false);
+// =============================================================================
+//  Helpers
+// =============================================================================
 
-  // Add question state
-  const [newQuestionText, setNewQuestionText] = useState('');
-  const [addingQuestion, setAddingQuestion]   = useState(false);
+function moduleTypePillClass(type: ModuleType): string {
+  switch (type) {
+    case 'COMPE':    return 'pill pill--blue';
+    case 'PsycheSPA': return 'pill pill--purple';
+    case 'Custom':   return 'pill pill--amber';
+    default:         return 'pill pill--muted';
+  }
+}
 
-  const keywordInputRef = useRef<HTMLInputElement>(null);
-  const moduleInputRef  = useRef<HTMLInputElement>(null);
+function moduleTypeLabel(type: ModuleType): string {
+  switch (type) {
+    case 'COMPE':    return 'COMPE';
+    case 'PsycheSPA': return 'PsycheSPA';
+    case 'Custom':   return 'Custom';
+  }
+}
 
-  // ── Derived ────────────────────────────────────────────────────────────────
-  const selectedModule = modules.find(m => m.id === selectedModuleId) ?? null;
+// =============================================================================
+//  QuestionCard sub-component
+// =============================================================================
 
-  // ── Lifecycle ──────────────────────────────────────────────────────────────
-  useEffect(() => { fetchModules(); }, []);
+interface QuestionCardProps {
+  question: Question;
+  moduleIsLocked: boolean;
+  showInactive: boolean;
+  onSave: (q: Question, updates: Partial<Question>) => Promise<void>;
+  onToggleActive: (q: Question) => Promise<void>;
+  onDelete: (q: Question) => void;
+}
 
+const QuestionCard: React.FC<QuestionCardProps> = ({
+  question, moduleIsLocked, showInactive, onSave, onToggleActive, onDelete
+}) => {
+  const [localPrompt, setLocalPrompt] = useState(question.prompt_text);
+  const [localLabels, setLocalLabels] = useState<QuestionLabels>({ ...question.custom_labels });
+  const [localReverse, setLocalReverse] = useState(question.is_reverse_scored);
+  const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  // Derived: is this question fully locked (module locked AND already edited)?
+  const fullyLocked = moduleIsLocked && question.has_been_edited;
+  // Can be edited once more (module locked but not yet edited)?
+  const oneTimeEditable = moduleIsLocked && !question.has_been_edited;
+
+  // Reset local state when question changes
   useEffect(() => {
-    if (showAddModuleInput) moduleInputRef.current?.focus();
-  }, [showAddModuleInput]);
+    setLocalPrompt(question.prompt_text);
+    setLocalLabels({ ...question.custom_labels });
+    setLocalReverse(question.is_reverse_scored);
+    setDirty(false);
+  }, [question.id]);
 
-  // ── Data Operations ────────────────────────────────────────────────────────
-  const fetchModules = async () => {
-    setLoading(true);
-    const { data, error } = await supabase
-      .from('PsychE_Modules')
-      .select('*')
-      .order('created_at', { ascending: true });
-    if (error) console.error('Error fetching modules:', error);
-    if (data) {
-      setModules(data as Module[]);
-      if (data.length > 0 && !selectedModuleId) {
-        setSelectedModuleId(data[0].id);
-        fetchQuestions(data[0].id);
-      }
-    }
-    setLoading(false);
+  const handleSave = async () => {
+    if (!dirty) return;
+    setSaving(true);
+    await onSave(question, {
+      prompt_text: localPrompt,
+      custom_labels: localLabels,
+      is_reverse_scored: localReverse,
+    });
+    setSaving(false);
+    setDirty(false);
   };
 
-  const fetchQuestions = async (moduleId: string) => {
+  const cardClass = [
+    'question-card',
+    fullyLocked ? 'locked' : '',
+    !question.is_active ? 'inactive' : '',
+  ].filter(Boolean).join(' ');
+
+  if (!question.is_active && !showInactive) return null;
+
+  return (
+    <motion.div
+      className={cardClass}
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.15 }}
+    >
+      {/* Card Header Row */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.625rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          {fullyLocked && (
+            <span className="lock-indicator" title="One-time-edit limit reached">
+              <Lock size={12} />
+              Locked
+            </span>
+          )}
+          {oneTimeEditable && (
+            <span style={{ fontSize: '0.7rem', color: 'var(--accent-amber)', fontWeight: 600 }}>
+              ⚡ One edit remaining
+            </span>
+          )}
+          {!question.is_active && (
+            <span className="pill pill--muted">Inactive</span>
+          )}
+        </div>
+
+        {/* Action buttons */}
+        <div style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
+          {dirty && !fullyLocked && (
+            <button
+              className="icon-btn success"
+              onClick={handleSave}
+              disabled={saving}
+              title="Save changes"
+            >
+              {saving ? <span style={{ fontSize: '0.65rem' }}>…</span> : <Save size={14} />}
+            </button>
+          )}
+          <button
+            className="icon-btn"
+            onClick={() => onToggleActive(question)}
+            title={question.is_active ? 'Deactivate question' : 'Restore question'}
+          >
+            {question.is_active ? <ToggleRight size={16} style={{ color: 'var(--accent-green)' }} /> : <ToggleLeft size={16} />}
+          </button>
+          {!question.is_active && !moduleIsLocked && (
+            <button
+              className="icon-btn danger"
+              onClick={() => onDelete(question)}
+              title="Permanently delete inactive question"
+            >
+              <Trash2 size={14} />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Prompt Text */}
+      <textarea
+        className="question-prompt-input"
+        value={localPrompt}
+        disabled={fullyLocked}
+        onChange={e => { setLocalPrompt(e.target.value); setDirty(true); }}
+        onBlur={handleSave}
+        placeholder="Question prompt text..."
+        rows={2}
+      />
+
+      {/* Reverse-score + Labels row */}
+      <div style={{ marginTop: '0.625rem', display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+        {/* Reverse-score toggle */}
+        <label className="toggle-switch" style={{ cursor: fullyLocked ? 'not-allowed' : 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={localReverse}
+            disabled={fullyLocked}
+            onChange={e => { setLocalReverse(e.target.checked); setDirty(true); }}
+          />
+          <span className="toggle-track">
+            <span className="toggle-thumb" />
+          </span>
+          <span style={{ color: localReverse ? 'var(--accent-amber)' : 'var(--text-muted)' }}>
+            Reverse-scored
+          </span>
+        </label>
+
+        {/* Label grid */}
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 600, marginBottom: '0.25rem', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+            Scale Labels
+          </div>
+          <div className="label-grid">
+            {(['1', '2', '3', '4'] as const).map(key => (
+              <input
+                key={key}
+                className="label-input"
+                value={localLabels[key]}
+                disabled={fullyLocked}
+                onChange={e => {
+                  setLocalLabels(prev => ({ ...prev, [key]: e.target.value }));
+                  setDirty(true);
+                }}
+                onBlur={handleSave}
+                placeholder={`Label ${key}`}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+    </motion.div>
+  );
+};
+
+// =============================================================================
+//  Main LibraryManager Component
+// =============================================================================
+
+export const LibraryManager: React.FC = () => {
+  // --- Module list state ---
+  const [modules, setModules] = useState<ModuleWithCount[]>([]);
+  const [filteredModules, setFilteredModules] = useState<ModuleWithCount[]>([]);
+  const [moduleFilter, setModuleFilter] = useState('');
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [modulesLoading, setModulesLoading] = useState(true);
+
+  // --- Selected module editing state ---
+  const [selectedModule, setSelectedModule] = useState<Module | null>(null);
+  const [questions, setQuestions] = useState<Question[]>([]);
+  const [questionsLoading, setQuestionsLoading] = useState(false);
+  const [showInactive, setShowInactive] = useState(false);
+
+  // --- Module field editing ---
+  const [editName, setEditName] = useState('');
+  const [editType, setEditType] = useState<ModuleType>('COMPE');
+  const [editDescription, setEditDescription] = useState('');
+
+  // --- Keywords ---
+  const [keywords, setKeywords] = useState<string[]>([]);
+  const [keywordInput, setKeywordInput] = useState('');
+
+  // --- Modals ---
+  const [lockModal, setLockModal] = useState<LockModalState>({ open: false, moduleId: null });
+  const [deleteQModal, setDeleteQModal] = useState<DeleteQModalState>({ open: false, question: null });
+  const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
+
+  const keywordInputRef = useRef<HTMLInputElement>(null);
+
+  // ==========================================================================
+  //  Data fetching
+  // ==========================================================================
+
+  const showToast = useCallback((msg: string, type: 'success' | 'error' = 'success') => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 3000);
+  }, []);
+
+  const fetchModules = useCallback(async () => {
+    setModulesLoading(true);
+    const { data: modulesData, error: modErr } = await supabase
+      .from('PsychE_Modules')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (modErr || !modulesData) {
+      showToast('Failed to load modules', 'error');
+      setModulesLoading(false);
+      return;
+    }
+
+    // Get question counts per module
+    const { data: counts } = await supabase
+      .from('PsychE_Questions')
+      .select('module_id')
+      .eq('is_active', true);
+
+    const countMap: Record<string, number> = {};
+    (counts ?? []).forEach(q => {
+      countMap[q.module_id] = (countMap[q.module_id] || 0) + 1;
+    });
+
+    const withCounts: ModuleWithCount[] = modulesData.map(m => ({
+      ...m,
+      question_count: countMap[m.id] || 0,
+    }));
+
+    setModules(withCounts);
+    setFilteredModules(withCounts);
+    setModulesLoading(false);
+  }, [showToast]);
+
+  const fetchQuestions = useCallback(async (moduleId: string) => {
+    setQuestionsLoading(true);
     const { data, error } = await supabase
       .from('PsychE_Questions')
       .select('*')
       .eq('module_id', moduleId)
       .order('created_at', { ascending: true });
-    if (error) console.error('Error fetching questions:', error);
-    if (data) setQuestions(data as Question[]);
+
+    if (error) { showToast('Failed to load questions', 'error'); }
+    else { setQuestions(data ?? []); }
+    setQuestionsLoading(false);
+  }, [showToast]);
+
+  useEffect(() => { fetchModules(); }, [fetchModules]);
+
+  // Filter modules by name
+  useEffect(() => {
+    const q = moduleFilter.trim().toLowerCase();
+    setFilteredModules(q ? modules.filter(m => m.name.toLowerCase().includes(q)) : modules);
+  }, [moduleFilter, modules]);
+
+  // Load module detail when selection changes
+  const handleSelectModule = useCallback(async (moduleId: string) => {
+    setSelectedId(moduleId);
+    const mod = modules.find(m => m.id === moduleId);
+    if (!mod) return;
+    setSelectedModule(mod);
+    setEditName(mod.name);
+    setEditType(mod.type);
+    setEditDescription(mod.description ?? '');
+    setKeywords(mod.smart_keywords ?? []);
+    setShowInactive(false);
+    await fetchQuestions(moduleId);
+  }, [modules, fetchQuestions]);
+
+  // ==========================================================================
+  //  Module mutations
+  // ==========================================================================
+
+  const handleCreateModule = async () => {
+    const { data, error } = await supabase
+      .from('PsychE_Modules')
+      .insert({ name: 'New Module', type: 'COMPE', smart_keywords: [] })
+      .select()
+      .single();
+
+    if (error || !data) { showToast('Failed to create module', 'error'); return; }
+    await fetchModules();
+    handleSelectModule(data.id);
   };
 
-  const handleModuleSelect = (id: string) => {
-    if (id === selectedModuleId) return;
-    setEditingQuestionId(null);
-    setSelectedModuleId(id);
-    fetchQuestions(id);
-  };
-
-  const handleAddKeyword = async (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key !== 'Enter' || !newKeyword.trim() || !selectedModule) return;
-    e.preventDefault();
-    const kw = newKeyword.trim().toLowerCase();
-    const current = selectedModule.smart_keywords || [];
-    if (current.includes(kw)) { setNewKeyword(''); return; }
-    const updated = [...current, kw];
+  const patchModule = async (updates: Partial<Module>) => {
+    if (!selectedId) return;
     const { error } = await supabase
       .from('PsychE_Modules')
-      .update({ smart_keywords: updated })
-      .eq('id', selectedModule.id);
-    if (!error) {
-      setModules(prev => prev.map(m => m.id === selectedModule.id ? { ...m, smart_keywords: updated } : m));
-      setNewKeyword('');
+      .update(updates)
+      .eq('id', selectedId);
+    if (error) { showToast('Save failed: ' + error.message, 'error'); }
+    else {
+      setSelectedModule(prev => prev ? { ...prev, ...updates } : prev);
+      await fetchModules(); // refresh counts & list
     }
   };
 
-  const handleRemoveKeyword = async (kwToRemove: string) => {
+  const handleNameBlur = async () => {
+    if (editName.trim() && editName !== selectedModule?.name) {
+      await patchModule({ name: editName.trim() });
+    }
+  };
+
+  const handleTypeChange = async (newType: ModuleType) => {
+    setEditType(newType);
+    await patchModule({ type: newType });
+  };
+
+  const handleDescriptionBlur = async () => {
+    if (editDescription !== selectedModule?.description) {
+      await patchModule({ description: editDescription });
+    }
+  };
+
+  // --- Keywords ---
+  const handleAddKeyword = async () => {
+    const kw = keywordInput.trim().toLowerCase();
+    if (!kw || keywords.includes(kw)) { setKeywordInput(''); return; }
+    const newKeywords = [...keywords, kw];
+    setKeywords(newKeywords);
+    setKeywordInput('');
+    await patchModule({ smart_keywords: newKeywords });
+    keywordInputRef.current?.focus();
+  };
+
+  const handleRemoveKeyword = async (kw: string) => {
+    const newKeywords = keywords.filter(k => k !== kw);
+    setKeywords(newKeywords);
+    await patchModule({ smart_keywords: newKeywords });
+  };
+
+  // --- Lock ---
+  const handleConfirmLock = async () => {
+    if (!lockModal.moduleId) return;
+    const { error } = await supabase
+      .from('PsychE_Modules')
+      .update({ is_locked: true })
+      .eq('id', lockModal.moduleId);
+    if (error) { showToast('Lock failed', 'error'); }
+    else {
+      showToast('Module locked successfully');
+      setSelectedModule(prev => prev ? { ...prev, is_locked: true } : prev);
+      await fetchModules();
+    }
+    setLockModal({ open: false, moduleId: null });
+  };
+
+  // ==========================================================================
+  //  Question mutations
+  // ==========================================================================
+
+  const handleSaveQuestion = async (q: Question, updates: Partial<Question>) => {
     if (!selectedModule) return;
-    const updated = (selectedModule.smart_keywords || []).filter((k: string) => k !== kwToRemove);
-    const { error } = await supabase
-      .from('PsychE_Modules')
-      .update({ smart_keywords: updated })
-      .eq('id', selectedModule.id);
-    if (!error) {
-      setModules(prev => prev.map(m => m.id === selectedModule.id ? { ...m, smart_keywords: updated } : m));
+
+    // One-time-edit enforcement
+    if (selectedModule.is_locked && q.has_been_edited) {
+      showToast('This question is locked — it has already been edited once.', 'error');
+      return;
     }
+
+    const payload: Partial<Question> = { ...updates };
+    if (selectedModule.is_locked && !q.has_been_edited) {
+      payload.has_been_edited = true;
+    }
+
+    const { error } = await supabase
+      .from('PsychE_Questions')
+      .update(payload)
+      .eq('id', q.id);
+
+    if (error) { showToast('Save failed: ' + error.message, 'error'); return; }
+
+    setQuestions(prev => prev.map(item =>
+      item.id === q.id ? { ...item, ...payload } : item
+    ));
+    showToast('Question saved');
   };
 
   const handleToggleActive = async (q: Question) => {
+    const newVal = !q.is_active;
+    // Optimistic update
+    setQuestions(prev => prev.map(item =>
+      item.id === q.id ? { ...item, is_active: newVal } : item
+    ));
     const { error } = await supabase
       .from('PsychE_Questions')
-      .update({ is_active: !q.is_active })
+      .update({ is_active: newVal })
       .eq('id', q.id);
-    if (!error) {
-      setQuestions(prev => prev.map(item => item.id === q.id ? { ...item, is_active: !q.is_active } : item));
+    if (error) {
+      // Revert
+      setQuestions(prev => prev.map(item =>
+        item.id === q.id ? { ...item, is_active: !newVal } : item
+      ));
+      showToast('Toggle failed', 'error');
+    } else {
+      await fetchModules(); // refresh count
     }
   };
 
-  const handleSaveEdit = async (q: Question) => {
-    if (!selectedModule || !editPromptText.trim() || savingEdit) return;
-    setSavingEdit(true);
-    const updates: Partial<Question> = { prompt_text: editPromptText.trim() };
-    if (selectedModule.is_locked) updates.has_been_edited = true;
-    const { error } = await supabase.from('PsychE_Questions').update(updates).eq('id', q.id);
-    if (!error) {
-      setQuestions(prev => prev.map(item => item.id === q.id ? { ...item, ...updates } : item));
-      setEditingQuestionId(null);
-      setEditPromptText('');
+  const handleDeleteQuestion = async () => {
+    const q = deleteQModal.question;
+    if (!q) return;
+    const { error } = await supabase
+      .from('PsychE_Questions')
+      .delete()
+      .eq('id', q.id);
+    if (error) { showToast('Delete failed', 'error'); }
+    else {
+      setQuestions(prev => prev.filter(item => item.id !== q.id));
+      showToast('Question deleted');
+      await fetchModules();
     }
-    setSavingEdit(false);
+    setDeleteQModal({ open: false, question: null });
   };
 
-  const handleCancelEdit = () => {
-    setEditingQuestionId(null);
-    setEditPromptText('');
-  };
-
-  const handleAddQuestion = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedModule || !newQuestionText.trim() || addingQuestion) return;
-    setAddingQuestion(true);
+  const handleAddQuestion = async () => {
+    if (!selectedId || selectedModule?.is_locked) return;
     const { data, error } = await supabase
       .from('PsychE_Questions')
-      .insert([{ module_id: selectedModule.id, prompt_text: newQuestionText.trim() }])
+      .insert({
+        module_id: selectedId,
+        prompt_text: 'New question prompt...',
+        is_reverse_scored: false,
+        custom_labels: DEFAULT_LABELS,
+        is_active: true,
+        has_been_edited: false,
+      })
       .select()
       .single();
-    if (!error && data) {
-      setQuestions(prev => [...prev, data as Question]);
-      setNewQuestionText('');
-    }
-    setAddingQuestion(false);
+
+    if (error || !data) { showToast('Failed to add question', 'error'); return; }
+    setQuestions(prev => [...prev, data]);
+    await fetchModules();
   };
 
-  const handleAddModule = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newModuleName.trim() || addingModule) return;
-    setAddingModule(true);
-    const { data, error } = await supabase
-      .from('PsychE_Modules')
-      .insert([{ name: newModuleName.trim(), type: 'Custom', description: '', smart_keywords: [] }])
-      .select()
-      .single();
-    if (error) { console.error('Error adding module:', error); setAddingModule(false); return; }
-    if (data) {
-      setModules(prev => [...prev, data as Module]);
-      setNewModuleName('');
-      setShowAddModuleInput(false);
-      setSelectedModuleId(data.id);
-      setQuestions([]);
-    }
-    setAddingModule(false);
-  };
+  // ==========================================================================
+  //  Render
+  // ==========================================================================
 
-  // ── Render ─────────────────────────────────────────────────────────────────
+  const activeQuestions = questions.filter(q => q.is_active);
+  const inactiveQuestions = questions.filter(q => !q.is_active);
+
   return (
-    <div style={css.root}>
+    <div className="page-animate" style={{ padding: '1.5rem', height: '100%' }}>
+      {/* Page title */}
+      <div style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+        <div style={{
+          width: 36, height: 36, borderRadius: 'var(--radius-md)',
+          background: 'linear-gradient(135deg, var(--accent-blue), var(--accent-purple))',
+          display: 'flex', alignItems: 'center', justifyContent: 'center'
+        }}>
+          <BookOpen size={18} color="white" />
+        </div>
+        <div>
+          <h1 style={{ fontSize: '1.1rem', fontWeight: 700, letterSpacing: '-0.02em', color: 'var(--text-primary)' }}>
+            Assessment Library
+          </h1>
+          <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+            Manage modules, questions, and smart keywords
+          </p>
+        </div>
+      </div>
 
-      {/* ═══ Layout Shell ═══════════════════════════════════════════════════ */}
-      <div style={css.shell}>
+      {/* Master-Detail Layout */}
+      <div className="master-detail">
 
-        {/* ─── Left Sidebar: Modules ─────────────────────────────────────── */}
-        <aside style={css.sidebar}>
-
-          {/* Sidebar Header */}
-          <div style={css.sidebarHeader}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <BookOpen size={15} color="#5e6ad2" />
-              <span style={css.sidebarTitle}>Modules</span>
+        {/* ── Master Pane ── */}
+        <div className="master-pane">
+          <div className="master-pane-header">
+            <h2>Modules</h2>
+            <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.625rem' }}>
+              <div style={{ flex: 1, position: 'relative' }}>
+                <Search size={13} style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
+                <input
+                  className="master-pane-search"
+                  style={{ paddingLeft: '26px' }}
+                  placeholder="Filter modules..."
+                  value={moduleFilter}
+                  onChange={e => setModuleFilter(e.target.value)}
+                />
+              </div>
+              <button
+                className="btn btn-primary"
+                style={{ padding: '0.4rem 0.75rem', fontSize: '0.8rem', whiteSpace: 'nowrap' }}
+                onClick={handleCreateModule}
+                title="Create new module"
+              >
+                <Plus size={14} />
+              </button>
             </div>
-            <span style={css.moduleBadge}>{modules.length}</span>
           </div>
 
-          {/* Module List */}
-          <div style={css.moduleList}>
-            {loading ? (
-              <div style={css.sidebarLoader}>
-                <Loader2 size={18} color="#5e6ad2" style={{ animation: 'spin 1s linear infinite' }} />
+          <div className="master-pane-list">
+            {modulesLoading ? (
+              <div style={{ padding: '1rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
+                Loading…
               </div>
-            ) : modules.length === 0 ? (
-              <p style={{ padding: '1rem', fontSize: '0.78rem', color: 'var(--color-text-muted)', textAlign: 'center' }}>
-                No modules yet.
-              </p>
+            ) : filteredModules.length === 0 ? (
+              <div style={{ padding: '1.5rem 1rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
+                No modules found.
+              </div>
             ) : (
-              modules.map((m) => (
-                <ModuleItem
-                  key={m.id}
-                  module={m}
-                  isActive={selectedModuleId === m.id}
-                  questionCount={selectedModuleId === m.id ? questions.length : undefined}
-                  onClick={() => handleModuleSelect(m.id)}
-                />
+              filteredModules.map(mod => (
+                <div
+                  key={mod.id}
+                  className={`master-item ${selectedId === mod.id ? 'active' : ''}`}
+                  onClick={() => handleSelectModule(mod.id)}
+                >
+                  <div className="master-item-name">{mod.name}</div>
+                  <div className="master-item-meta">
+                    <span className={moduleTypePillClass(mod.type)}>{moduleTypeLabel(mod.type)}</span>
+                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                      {mod.question_count}Q
+                    </span>
+                    {mod.is_locked && <Lock size={11} style={{ color: 'var(--accent-amber)' }} />}
+                    <ChevronRight size={12} style={{ color: 'var(--text-muted)', marginLeft: 'auto' }} />
+                  </div>
+                </div>
               ))
             )}
           </div>
+        </div>
 
-          {/* Pinned Add Module */}
-          <div style={css.sidebarFooter}>
-            {showAddModuleInput ? (
-              <form onSubmit={handleAddModule} style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <input
-                  ref={moduleInputRef}
-                  type="text"
-                  placeholder="Module name…"
-                  value={newModuleName}
-                  onChange={e => setNewModuleName(e.target.value)}
-                  style={css.moduleNameInput}
-                  onKeyDown={e => e.key === 'Escape' && setShowAddModuleInput(false)}
-                />
-                <div style={{ display: 'flex', gap: '6px' }}>
-                  <button
-                    type="submit"
-                    disabled={!newModuleName.trim() || addingModule}
-                    style={{ ...css.addModuleConfirm, opacity: !newModuleName.trim() ? 0.5 : 1 }}
-                  >
-                    {addingModule ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Plus size={13} />}
-                    Create
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => { setShowAddModuleInput(false); setNewModuleName(''); }}
-                    style={css.addModuleCancel}
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </form>
-            ) : (
-              <button
-                onClick={() => setShowAddModuleInput(true)}
-                style={css.addModuleBtn}
+        {/* ── Detail Pane ── */}
+        <div className="detail-pane">
+          <AnimatePresence mode="wait">
+            {!selectedModule ? (
+              <motion.div
+                key="empty"
+                className="detail-empty"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
               >
-                <Plus size={14} />
-                <span>Add New Module</span>
-              </button>
-            )}
-          </div>
-        </aside>
+                <div className="detail-empty-icon">
+                  <BookOpen size={24} />
+                </div>
+                <div>
+                  <p style={{ fontWeight: 600, marginBottom: '0.25rem', color: 'var(--text-primary)' }}>
+                    Select a Module
+                  </p>
+                  <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                    Choose a module from the list, or create a new one.
+                  </p>
+                </div>
+              </motion.div>
+            ) : (
+              <motion.div
+                key={selectedModule.id}
+                className="detail-pane-inner"
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.15 }}
+              >
+                {/* ── Module Header ── */}
+                <div className="module-header">
+                  <input
+                    className="module-name-input"
+                    value={editName}
+                    onChange={e => setEditName(e.target.value)}
+                    onBlur={handleNameBlur}
+                    placeholder="Module name..."
+                    disabled={selectedModule.is_locked}
+                  />
 
-        {/* ─── Right Pane: Detail ────────────────────────────────────────── */}
-        <main style={css.detail}>
-          {!selectedModule ? (
-            <EmptyDetailState />
-          ) : (
-            <>
-              {/* Detail Header */}
-              <div style={css.detailHeader}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
-                  <h2 style={css.detailTitle}>{selectedModule.name}</h2>
-                  {selectedModule.is_locked && (
-                    <div style={css.lockBadge} title="This module is locked. Questions can only be edited once.">
-                      <Lock size={11} />
-                      <span>Locked</span>
+                  <div className="module-meta-row">
+                    <select
+                      className="module-type-select"
+                      value={editType}
+                      disabled={selectedModule.is_locked}
+                      onChange={e => handleTypeChange(e.target.value as ModuleType)}
+                    >
+                      <option value="COMPE">COMPE (Likert)</option>
+                      <option value="PsycheSPA">PsycheSPA (Formal)</option>
+                      <option value="Custom">Custom</option>
+                    </select>
+
+                    {selectedModule.is_locked ? (
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: 'var(--accent-amber)', fontSize: '0.8rem', fontWeight: 600 }}>
+                        <Lock size={14} /> Locked Module
+                      </span>
+                    ) : (
+                      <button
+                        className="btn"
+                        style={{ padding: '0.35rem 0.875rem', background: 'rgba(245, 166, 35, 0.1)', border: '1px solid rgba(245, 166, 35, 0.3)', color: 'var(--accent-amber)', fontSize: '0.78rem', fontWeight: 600 }}
+                        onClick={() => setLockModal({ open: true, moduleId: selectedModule.id })}
+                        title="Lock this module — limits each question to one edit"
+                      >
+                        <Unlock size={13} /> Lock Module
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Description */}
+                  <div style={{ marginTop: '0.875rem' }}>
+                    <div className="section-label">Description</div>
+                    <textarea
+                      className="question-prompt-input"
+                      style={{ minHeight: '52px', fontSize: '0.8rem' }}
+                      value={editDescription}
+                      onChange={e => setEditDescription(e.target.value)}
+                      onBlur={handleDescriptionBlur}
+                      disabled={selectedModule.is_locked}
+                      placeholder="Optional module description..."
+                      rows={2}
+                    />
+                  </div>
+
+                  {/* Smart Keywords */}
+                  <div className="keywords-area">
+                    <div className="keywords-area-label">Smart Keywords</div>
+                    <div className="keywords-wrap" onClick={() => keywordInputRef.current?.focus()}>
+                      {keywords.map(kw => (
+                        <span key={kw} className="keyword-pill">
+                          {kw}
+                          {!selectedModule.is_locked && (
+                            <button
+                              onClick={e => { e.stopPropagation(); handleRemoveKeyword(kw); }}
+                              title={`Remove "${kw}"`}
+                            >
+                              <X size={11} />
+                            </button>
+                          )}
+                        </span>
+                      ))}
+                      {!selectedModule.is_locked && (
+                        <input
+                          ref={keywordInputRef}
+                          className="keyword-add-input"
+                          value={keywordInput}
+                          onChange={e => setKeywordInput(e.target.value)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter' || e.key === ',') {
+                              e.preventDefault();
+                              handleAddKeyword();
+                            }
+                          }}
+                          placeholder={keywords.length === 0 ? 'Add keywords (press Enter)…' : ''}
+                        />
+                      )}
+                    </div>
+                    <p style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: '0.3rem' }}>
+                      Triggered when counselor types matching words in the "Reason" field during Add Log.
+                    </p>
+                  </div>
+                </div>
+
+                {/* ── Questions List ── */}
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.875rem' }}>
+                    <div className="section-label" style={{ margin: 0, flex: 1 }}>
+                      Questions ({activeQuestions.length} active
+                      {inactiveQuestions.length > 0 ? `, ${inactiveQuestions.length} inactive` : ''})
+                    </div>
+                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginLeft: '1rem' }}>
+                      {inactiveQuestions.length > 0 && (
+                        <button
+                          className="btn"
+                          style={{ padding: '0.3rem 0.75rem', fontSize: '0.75rem', background: 'transparent', border: '1px solid var(--border-subtle)', color: 'var(--text-secondary)' }}
+                          onClick={() => setShowInactive(p => !p)}
+                        >
+                          {showInactive ? 'Hide Inactive' : 'Show Inactive'}
+                        </button>
+                      )}
+                      <button
+                        className="btn btn-primary"
+                        style={{ padding: '0.35rem 0.875rem', fontSize: '0.8rem', opacity: selectedModule.is_locked ? 0.4 : 1 }}
+                        disabled={selectedModule.is_locked}
+                        onClick={handleAddQuestion}
+                        title={selectedModule.is_locked ? 'Cannot add questions to a locked module' : 'Add question'}
+                      >
+                        <Plus size={14} /> Add Question
+                      </button>
+                    </div>
+                  </div>
+
+                  {questionsLoading ? (
+                    <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+                      Loading questions…
+                    </div>
+                  ) : questions.length === 0 ? (
+                    <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)', border: '1px dashed var(--border-subtle)', borderRadius: 'var(--radius-md)' }}>
+                      <p style={{ marginBottom: '0.5rem', fontWeight: 500 }}>No questions yet</p>
+                      {!selectedModule.is_locked && (
+                        <p style={{ fontSize: '0.8rem' }}>Click "Add Question" to get started.</p>
+                      )}
+                    </div>
+                  ) : (
+                    <div>
+                      {/* Active questions */}
+                      {activeQuestions.map(q => (
+                        <QuestionCard
+                          key={q.id}
+                          question={q}
+                          moduleIsLocked={selectedModule.is_locked}
+                          showInactive={showInactive}
+                          onSave={handleSaveQuestion}
+                          onToggleActive={handleToggleActive}
+                          onDelete={q => setDeleteQModal({ open: true, question: q })}
+                        />
+                      ))}
+                      {/* Inactive questions (shown when toggled) */}
+                      {showInactive && inactiveQuestions.length > 0 && (
+                        <>
+                          <div style={{ marginTop: '1rem', marginBottom: '0.5rem', fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                            Inactive Questions
+                          </div>
+                          {inactiveQuestions.map(q => (
+                            <QuestionCard
+                              key={q.id}
+                              question={q}
+                              moduleIsLocked={selectedModule.is_locked}
+                              showInactive={showInactive}
+                              onSave={handleSaveQuestion}
+                              onToggleActive={handleToggleActive}
+                              onDelete={q => setDeleteQModal({ open: true, question: q })}
+                            />
+                          ))}
+                        </>
+                      )}
                     </div>
                   )}
                 </div>
-                <span style={css.questionCount}>
-                  <Hash size={12} />
-                  {questions.length} question{questions.length !== 1 ? 's' : ''}
-                </span>
-              </div>
-
-              {/* ── Keywords Section ─────────────────────────────────────── */}
-              <div style={css.keywordsSection}>
-                <div style={css.keywordsSectionLabel}>
-                  <Tag size={12} />
-                  <span>SMART KEYWORDS</span>
-                  <span style={css.keywordsHint}>Press Enter to add · Click × to remove</span>
-                </div>
-                <div style={css.keywordsPillBox}>
-                  {(selectedModule.smart_keywords || []).map((kw: string) => (
-                    <KeywordPill key={kw} label={kw} onRemove={() => handleRemoveKeyword(kw)} />
-                  ))}
-                  <input
-                    ref={keywordInputRef}
-                    type="text"
-                    placeholder="Add keyword…"
-                    value={newKeyword}
-                    onChange={e => setNewKeyword(e.target.value)}
-                    onKeyDown={handleAddKeyword}
-                    style={css.keywordInput}
-                  />
-                </div>
-              </div>
-
-              {/* ── Question Table ───────────────────────────────────────── */}
-              <div className="table-scroll" style={css.tableContainer}>
-                <table style={css.table}>
-                  <thead>
-                    <tr>
-                      <th style={{ ...css.th, width: '52%' }}>PROMPT TEXT</th>
-                      <th style={{ ...css.th, width: '14%' }}>SCORING</th>
-                      <th style={{ ...css.th, width: '13%' }}>STATUS</th>
-                      <th style={{ ...css.th, width: '21%', textAlign: 'right' }}>ACTIONS</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {questions.length === 0 && !editingQuestionId ? (
-                      <tr>
-                        <td colSpan={4} style={{ ...css.td, textAlign: 'center', padding: '2.5rem', color: 'var(--color-text-muted)', fontSize: '0.8125rem' }}>
-                          No questions in this module. Add one below.
-                        </td>
-                      </tr>
-                    ) : (
-                      questions.map((q, i) => (
-                        editingQuestionId === q.id ? (
-                          <EditRow
-                            key={q.id}
-                            value={editPromptText}
-                            saving={savingEdit}
-                            onChange={setEditPromptText}
-                            onSave={() => handleSaveEdit(q)}
-                            onCancel={handleCancelEdit}
-                          />
-                        ) : (
-                          <QuestionRow
-                            key={q.id}
-                            question={q}
-                            index={i}
-                            isLocked={!!selectedModule.is_locked}
-                            onToggleActive={() => handleToggleActive(q)}
-                            onEdit={() => { setEditingQuestionId(q.id); setEditPromptText(q.prompt_text); }}
-                          />
-                        )
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-
-              {/* ── Add Question Footer ──────────────────────────────────── */}
-              <form onSubmit={handleAddQuestion} style={css.addQuestionForm}>
-                <input
-                  type="text"
-                  placeholder="Type a new question prompt and press Add…"
-                  value={newQuestionText}
-                  onChange={e => setNewQuestionText(e.target.value)}
-                  style={css.addQuestionInput}
-                  onFocus={e => Object.assign(e.target.style, { borderColor: 'rgba(94,106,210,0.5)', background: 'rgba(255,255,255,0.05)' })}
-                  onBlur={e => Object.assign(e.target.style, { borderColor: 'rgba(255,255,255,0.07)', background: 'rgba(255,255,255,0.025)' })}
-                />
-                <button
-                  type="submit"
-                  disabled={!newQuestionText.trim() || addingQuestion}
-                  style={{ ...css.addQuestionBtn, opacity: !newQuestionText.trim() ? 0.5 : 1 }}
-                >
-                  {addingQuestion
-                    ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />
-                    : <Plus size={14} />
-                  }
-                  Add Question
-                </button>
-              </form>
-            </>
-          )}
-        </main>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
       </div>
 
-      {/* Global keyframe injection */}
-      <style>{`
-        @keyframes spin       { to { transform: rotate(360deg); } }
-        @keyframes rowSlideIn { from { opacity:0; transform:translateY(5px); } to { opacity:1; transform:translateY(0); } }
-        @keyframes kwPop      { from { opacity:0; transform:scale(0.8); } to { opacity:1; transform:scale(1); } }
-      `}</style>
+      {/* ── Lock Confirmation Modal ── */}
+      <AnimatePresence>
+        {lockModal.open && (
+          <motion.div
+            className="modal-overlay"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <motion.div
+              className="modal-panel"
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.875rem' }}>
+                <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(245, 166, 35, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <AlertTriangle size={18} style={{ color: 'var(--accent-amber)' }} />
+                </div>
+                <h3 style={{ margin: 0 }}>Lock This Module?</h3>
+              </div>
+              <p>
+                Locking this module will limit each question to <strong>one edit only</strong>. Once a question has been edited in a locked module, it cannot be changed again.
+                <br /><br />
+                <strong>This action cannot be undone.</strong>
+              </p>
+              <div className="modal-actions">
+                <button
+                  className="btn"
+                  style={{ padding: '0.5rem 1.25rem', background: 'var(--bg-tertiary)', color: 'var(--text-secondary)', border: '1px solid var(--border-subtle)' }}
+                  onClick={() => setLockModal({ open: false, moduleId: null })}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="btn"
+                  style={{ padding: '0.5rem 1.25rem', background: 'var(--accent-amber)', color: '#000', fontWeight: 600 }}
+                  onClick={handleConfirmLock}
+                >
+                  <Lock size={14} /> Lock Module
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Delete Question Modal ── */}
+      <AnimatePresence>
+        {deleteQModal.open && (
+          <motion.div
+            className="modal-overlay"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <motion.div
+              className="modal-panel"
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+            >
+              <h3>Delete Question?</h3>
+              <p>
+                This will <strong>permanently delete</strong> the question:
+                <br />
+                <em style={{ color: 'var(--text-primary)' }}>"{deleteQModal.question?.prompt_text}"</em>
+                <br /><br />
+                Any associated responses will also be deleted (cascade). This cannot be undone.
+              </p>
+              <div className="modal-actions">
+                <button
+                  className="btn"
+                  style={{ padding: '0.5rem 1.25rem', background: 'var(--bg-tertiary)', color: 'var(--text-secondary)', border: '1px solid var(--border-subtle)' }}
+                  onClick={() => setDeleteQModal({ open: false, question: null })}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="btn"
+                  style={{ padding: '0.5rem 1.25rem', background: 'var(--accent-red)', color: '#fff', fontWeight: 600 }}
+                  onClick={handleDeleteQuestion}
+                >
+                  <Trash2 size={14} /> Delete
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Toast ── */}
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            initial={{ opacity: 0, y: 16, x: '-50%' }}
+            animate={{ opacity: 1, y: 0, x: '-50%' }}
+            exit={{ opacity: 0, y: 16, x: '-50%' }}
+            style={{
+              position: 'fixed',
+              bottom: '1.5rem',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              background: toast.type === 'success' ? 'rgba(63, 201, 143, 0.15)' : 'rgba(245, 91, 91, 0.15)',
+              border: `1px solid ${toast.type === 'success' ? 'rgba(63,201,143,0.4)' : 'rgba(245,91,91,0.4)'}`,
+              color: toast.type === 'success' ? 'var(--accent-green)' : 'var(--accent-red)',
+              padding: '0.625rem 1.25rem',
+              borderRadius: 'var(--radius-full)',
+              fontSize: '0.85rem',
+              fontWeight: 600,
+              backdropFilter: 'blur(12px)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              zIndex: 300,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {toast.type === 'success' ? <Check size={15} /> : <AlertTriangle size={15} />}
+            {toast.msg}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
-};
-
-// ─── Module Sidebar Item ──────────────────────────────────────────────────────
-interface ModuleItemProps {
-  module: Module;
-  isActive: boolean;
-  questionCount?: number;
-  onClick: () => void;
-}
-const ModuleItem: React.FC<ModuleItemProps> = ({ module, isActive, questionCount, onClick }) => {
-  const [hovered, setHovered] = useState(false);
-  return (
-    <button
-      onClick={onClick}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      style={{
-        width: '100%',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        gap: '8px',
-        padding: '9px 14px',
-        textAlign: 'left',
-        border: 'none',
-        borderLeft: isActive ? '2px solid #5e6ad2' : '2px solid transparent',
-        background: isActive
-          ? 'linear-gradient(90deg, rgba(94,106,210,0.15) 0%, rgba(94,106,210,0.04) 100%)'
-          : hovered ? 'rgba(255,255,255,0.03)' : 'transparent',
-        cursor: 'pointer',
-        transition: 'background 0.15s ease, border-color 0.15s ease',
-      }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1 }}>
-        <ChevronRight
-          size={13}
-          color={isActive ? '#818cf8' : 'rgba(255,255,255,0.2)'}
-          style={{ flexShrink: 0, transition: 'color 0.15s ease' }}
-        />
-        <span style={{
-          fontSize: '0.8125rem',
-          fontWeight: isActive ? 600 : 400,
-          color: isActive ? '#e0e2f0' : 'var(--color-text-muted)',
-          whiteSpace: 'nowrap',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          transition: 'color 0.15s ease',
-          letterSpacing: '-0.01em',
-        }}>
-          {module.name}
-        </span>
-      </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '5px', flexShrink: 0 }}>
-        {module.is_locked && (
-          <Lock size={10} color={isActive ? '#818cf8' : 'rgba(255,255,255,0.2)'} />
-        )}
-        {isActive && questionCount !== undefined && (
-          <span style={{
-            fontSize: '0.65rem',
-            fontWeight: 600,
-            color: '#818cf8',
-            background: 'rgba(94,106,210,0.15)',
-            border: '1px solid rgba(94,106,210,0.25)',
-            borderRadius: '10px',
-            padding: '1px 6px',
-          }}>
-            {questionCount}
-          </span>
-        )}
-      </div>
-    </button>
-  );
-};
-
-// ─── Keyword Pill ─────────────────────────────────────────────────────────────
-const KeywordPill: React.FC<{ label: string; onRemove: () => void }> = ({ label, onRemove }) => {
-  const [hovered, setHovered] = useState(false);
-  return (
-    <span
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: '5px',
-        padding: '3px 9px 3px 10px',
-        borderRadius: '20px',
-        background: hovered ? 'rgba(94,106,210,0.2)' : 'rgba(94,106,210,0.1)',
-        border: '1px solid rgba(94,106,210,0.3)',
-        color: '#818cf8',
-        fontSize: '0.72rem',
-        fontWeight: 600,
-        letterSpacing: '0.02em',
-        animation: 'kwPop 0.2s ease',
-        transition: 'background 0.15s ease',
-        cursor: 'default',
-        userSelect: 'none' as const,
-      }}
-    >
-      {label}
-      <button
-        onClick={onRemove}
-        style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          border: 'none',
-          background: 'none',
-          color: hovered ? '#f87171' : 'rgba(129,140,248,0.6)',
-          cursor: 'pointer',
-          padding: '0',
-          lineHeight: 1,
-          transition: 'color 0.15s ease',
-        }}
-      >
-        <X size={11} />
-      </button>
-    </span>
-  );
-};
-
-// ─── Question Row ─────────────────────────────────────────────────────────────
-interface QuestionRowProps {
-  question: Question;
-  index: number;
-  isLocked: boolean;
-  onToggleActive: () => void;
-  onEdit: () => void;
-}
-const QuestionRow: React.FC<QuestionRowProps> = ({ question: q, index, isLocked, onToggleActive, onEdit }) => {
-  const [hovered, setHovered] = useState(false);
-  const canEdit = !(isLocked && q.has_been_edited);
-
-  return (
-    <tr
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      style={{
-        backgroundColor: hovered ? 'rgba(255,255,255,0.025)' : 'transparent',
-        borderBottom: '1px solid rgba(255,255,255,0.04)',
-        animation: `rowSlideIn 0.2s ease ${index * 0.03}s both`,
-        transition: 'background-color 0.12s ease',
-        opacity: q.is_active ? 1 : 0.5,
-      }}
-    >
-      {/* Prompt Text */}
-      <td style={{ ...css.td, maxWidth: 0 }}>
-        <p style={{
-          fontSize: '0.8125rem',
-          color: q.is_active ? 'var(--color-text)' : 'var(--color-text-muted)',
-          lineHeight: 1.5,
-          margin: 0,
-          overflow: 'hidden',
-          display: '-webkit-box',
-          WebkitLineClamp: 2,
-          WebkitBoxOrient: 'vertical' as const,
-        }}>
-          {q.prompt_text}
-        </p>
-      </td>
-
-      {/* Scoring Logic */}
-      <td style={css.td}>
-        {q.is_reverse_scored ? (
-          <span style={{
-            display: 'inline-flex', alignItems: 'center', gap: '4px',
-            padding: '2px 8px', borderRadius: '4px', fontSize: '0.68rem', fontWeight: 700,
-            letterSpacing: '0.06em', textTransform: 'uppercase' as const,
-            background: 'rgba(245,158,11,0.1)', color: '#fbbf24',
-            border: '1px solid rgba(245,158,11,0.25)',
-          }}>
-            <RotateCcw size={10} /> Reverse
-          </span>
-        ) : (
-          <span style={{
-            display: 'inline-flex', alignItems: 'center', gap: '4px',
-            padding: '2px 8px', borderRadius: '4px', fontSize: '0.68rem', fontWeight: 700,
-            letterSpacing: '0.06em', textTransform: 'uppercase' as const,
-            background: 'rgba(74,222,128,0.08)', color: '#4ade80',
-            border: '1px solid rgba(74,222,128,0.2)',
-          }}>
-            Normal
-          </span>
-        )}
-      </td>
-
-      {/* Status Toggle */}
-      <td style={css.td}>
-        <ToggleSwitch isActive={q.is_active} onToggle={onToggleActive} />
-      </td>
-
-      {/* Actions */}
-      <td style={{ ...css.td, textAlign: 'right' }}>
-        {canEdit ? (
-          <button
-            onClick={onEdit}
-            title="Edit prompt text"
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: '5px',
-              padding: '4px 11px', borderRadius: '6px',
-              fontSize: '0.73rem', fontWeight: 500,
-              color: hovered ? '#93c5fd' : 'var(--color-text-muted)',
-              background: hovered ? 'rgba(59,130,246,0.08)' : 'transparent',
-              border: `1px solid ${hovered ? 'rgba(59,130,246,0.2)' : 'transparent'}`,
-              cursor: 'pointer',
-              transition: 'all 0.15s ease',
-            }}
-          >
-            <Edit2 size={12} /> Edit
-          </button>
-        ) : (
-          <div
-            title="Locked — this question has already been edited once"
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: '5px',
-              padding: '4px 11px', borderRadius: '6px',
-              fontSize: '0.73rem', fontWeight: 500,
-              color: 'rgba(255,255,255,0.2)',
-              border: '1px solid rgba(255,255,255,0.06)',
-              cursor: 'not-allowed',
-            }}
-          >
-            <Lock size={12} /> Locked
-          </div>
-        )}
-      </td>
-    </tr>
-  );
-};
-
-// ─── Inline Edit Row ──────────────────────────────────────────────────────────
-interface EditRowProps {
-  value: string;
-  saving: boolean;
-  onChange: (v: string) => void;
-  onSave: () => void;
-  onCancel: () => void;
-}
-const EditRow: React.FC<EditRowProps> = ({ value, saving, onChange, onSave, onCancel }) => (
-  <tr style={{ backgroundColor: 'rgba(94,106,210,0.06)', borderBottom: '1px solid rgba(94,106,210,0.15)' }}>
-    <td style={{ ...css.td, paddingTop: '10px', paddingBottom: '10px' }}>
-      <input
-        autoFocus
-        type="text"
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        onKeyDown={e => { if (e.key === 'Escape') onCancel(); }}
-        style={{
-          width: '100%', padding: '6px 10px',
-          background: 'rgba(255,255,255,0.05)',
-          border: '1px solid rgba(94,106,210,0.4)',
-          borderRadius: '7px',
-          color: 'var(--color-text)',
-          fontSize: '0.8125rem',
-          outline: 'none',
-          boxShadow: '0 0 0 3px rgba(94,106,210,0.12)',
-        }}
-      />
-    </td>
-    <td style={css.td} />
-    <td style={css.td} />
-    <td style={{ ...css.td, textAlign: 'right' }}>
-      <div style={{ display: 'inline-flex', gap: '6px' }}>
-        <button
-          onClick={onSave}
-          disabled={!value.trim() || saving}
-          style={{
-            display: 'inline-flex', alignItems: 'center', gap: '4px',
-            padding: '4px 11px', borderRadius: '6px',
-            fontSize: '0.73rem', fontWeight: 600,
-            color: 'white',
-            background: 'rgba(74,222,128,0.2)',
-            border: '1px solid rgba(74,222,128,0.35)',
-            cursor: saving || !value.trim() ? 'not-allowed' : 'pointer',
-            opacity: !value.trim() ? 0.5 : 1,
-          }}
-        >
-          {saving ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle2 size={12} />}
-          Save
-        </button>
-        <button
-          onClick={onCancel}
-          style={{
-            display: 'inline-flex', alignItems: 'center', gap: '4px',
-            padding: '4px 11px', borderRadius: '6px',
-            fontSize: '0.73rem', fontWeight: 500,
-            color: 'var(--color-text-muted)',
-            background: 'transparent',
-            border: '1px solid rgba(255,255,255,0.08)',
-            cursor: 'pointer',
-          }}
-        >
-          <XCircle size={12} /> Cancel
-        </button>
-      </div>
-    </td>
-  </tr>
-);
-
-// ─── Toggle Switch ────────────────────────────────────────────────────────────
-const ToggleSwitch: React.FC<{ isActive: boolean; onToggle: () => void }> = ({ isActive, onToggle }) => (
-  <button
-    onClick={onToggle}
-    title={isActive ? 'Deactivate question' : 'Activate question'}
-    style={{
-      position: 'relative',
-      width: '34px', height: '18px',
-      borderRadius: '9px',
-      background: isActive ? 'rgba(74,222,128,0.35)' : 'rgba(255,255,255,0.1)',
-      border: `1px solid ${isActive ? 'rgba(74,222,128,0.5)' : 'rgba(255,255,255,0.15)'}`,
-      cursor: 'pointer',
-      transition: 'background 0.2s ease, border-color 0.2s ease',
-      flexShrink: 0,
-    }}
-  >
-    <span style={{
-      position: 'absolute',
-      top: '2px',
-      left: isActive ? '16px' : '2px',
-      width: '12px', height: '12px',
-      borderRadius: '50%',
-      background: isActive ? '#4ade80' : 'rgba(255,255,255,0.3)',
-      transition: 'left 0.2s ease, background 0.2s ease',
-      boxShadow: isActive ? '0 0 6px rgba(74,222,128,0.6)' : 'none',
-    }} />
-  </button>
-);
-
-// ─── Empty Detail State ───────────────────────────────────────────────────────
-const EmptyDetailState: React.FC = () => (
-  <div style={{
-    display: 'flex', flexDirection: 'column', alignItems: 'center',
-    justifyContent: 'center', height: '100%', gap: '12px',
-  }}>
-    <BookOpen size={36} color="rgba(255,255,255,0.08)" />
-    <p style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted)', textAlign: 'center' }}>
-      Select a module from the left to begin editing.
-    </p>
-  </div>
-);
-
-// ─── Style Constants ──────────────────────────────────────────────────────────
-const css: Record<string, React.CSSProperties> = {
-  root: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '0',
-  },
-  // ── Shell ──
-  shell: {
-    display: 'flex',
-    height: '76vh',
-    minHeight: '520px',
-    borderRadius: '16px',
-    border: '1px solid rgba(255,255,255,0.07)',
-    background: 'rgba(15,17,21,0.85)',
-    backdropFilter: 'blur(20px)',
-    WebkitBackdropFilter: 'blur(20px)',
-    overflow: 'hidden',
-    boxShadow: '0 12px 48px rgba(0,0,0,0.4)',
-  },
-  // ── Sidebar ──
-  sidebar: {
-    width: '240px',
-    minWidth: '220px',
-    maxWidth: '240px',
-    flexShrink: 0,
-    display: 'flex',
-    flexDirection: 'column',
-    borderRight: '1px solid rgba(255,255,255,0.06)',
-    background: 'rgba(255,255,255,0.015)',
-  },
-  sidebarHeader: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: '14px 14px 12px',
-    borderBottom: '1px solid rgba(255,255,255,0.05)',
-  },
-  sidebarTitle: {
-    fontSize: '0.72rem',
-    fontWeight: 700,
-    letterSpacing: '0.08em',
-    textTransform: 'uppercase' as const,
-    color: 'var(--color-text-muted)',
-  },
-  moduleBadge: {
-    fontSize: '0.65rem',
-    fontWeight: 600,
-    color: '#818cf8',
-    background: 'rgba(94,106,210,0.12)',
-    border: '1px solid rgba(94,106,210,0.2)',
-    borderRadius: '10px',
-    padding: '1px 6px',
-  },
-  moduleList: {
-    flex: 1,
-    overflowY: 'auto' as const,
-    padding: '6px 0',
-  },
-  sidebarLoader: {
-    display: 'flex',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: '2rem',
-  },
-  sidebarFooter: {
-    padding: '10px',
-    borderTop: '1px solid rgba(255,255,255,0.05)',
-  },
-  addModuleBtn: {
-    width: '100%',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: '6px',
-    padding: '8px',
-    borderRadius: '8px',
-    background: 'transparent',
-    border: '1px dashed rgba(94,106,210,0.3)',
-    color: '#818cf8',
-    fontSize: '0.78rem',
-    fontWeight: 500,
-    cursor: 'pointer',
-    transition: 'all 0.15s ease',
-  },
-  moduleNameInput: {
-    width: '100%',
-    padding: '7px 10px',
-    background: 'rgba(255,255,255,0.04)',
-    border: '1px solid rgba(94,106,210,0.35)',
-    borderRadius: '7px',
-    color: 'var(--color-text)',
-    fontSize: '0.8125rem',
-    outline: 'none',
-    boxShadow: '0 0 0 2px rgba(94,106,210,0.1)',
-  },
-  addModuleConfirm: {
-    flex: 1,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: '5px',
-    padding: '6px 10px',
-    borderRadius: '7px',
-    background: 'linear-gradient(135deg, #5e6ad2, #8b5cf6)',
-    color: 'white',
-    fontSize: '0.75rem',
-    fontWeight: 600,
-    border: 'none',
-    cursor: 'pointer',
-    boxShadow: '0 2px 8px rgba(94,106,210,0.3)',
-  },
-  addModuleCancel: {
-    padding: '6px 10px',
-    borderRadius: '7px',
-    background: 'rgba(255,255,255,0.04)',
-    color: 'var(--color-text-muted)',
-    fontSize: '0.75rem',
-    fontWeight: 500,
-    border: '1px solid rgba(255,255,255,0.08)',
-    cursor: 'pointer',
-  },
-  // ── Detail Pane ──
-  detail: {
-    flex: 1,
-    minWidth: 0,
-    display: 'flex',
-    flexDirection: 'column',
-    overflow: 'hidden',
-  },
-  detailHeader: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: '14px 20px',
-    borderBottom: '1px solid rgba(255,255,255,0.06)',
-    background: 'rgba(255,255,255,0.015)',
-    flexShrink: 0,
-    minWidth: 0,
-  },
-  detailTitle: {
-    fontSize: '0.9375rem',
-    fontWeight: 600,
-    color: 'var(--color-text)',
-    letterSpacing: '-0.02em',
-    margin: 0,
-    whiteSpace: 'nowrap',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-  },
-  lockBadge: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: '4px',
-    padding: '2px 8px',
-    borderRadius: '4px',
-    background: 'rgba(245,158,11,0.1)',
-    border: '1px solid rgba(245,158,11,0.25)',
-    color: '#fbbf24',
-    fontSize: '0.65rem',
-    fontWeight: 700,
-    letterSpacing: '0.06em',
-    textTransform: 'uppercase' as const,
-    flexShrink: 0,
-  },
-  questionCount: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: '4px',
-    padding: '3px 9px',
-    borderRadius: '20px',
-    background: 'rgba(94,106,210,0.08)',
-    border: '1px solid rgba(94,106,210,0.15)',
-    color: '#818cf8',
-    fontSize: '0.72rem',
-    fontWeight: 600,
-    flexShrink: 0,
-  },
-  // ── Keywords ──
-  keywordsSection: {
-    padding: '12px 20px',
-    borderBottom: '1px solid rgba(255,255,255,0.05)',
-    flexShrink: 0,
-  },
-  keywordsSectionLabel: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '5px',
-    fontSize: '0.62rem',
-    fontWeight: 700,
-    letterSpacing: '0.1em',
-    textTransform: 'uppercase' as const,
-    color: 'var(--color-text-muted)',
-    marginBottom: '8px',
-  },
-  keywordsHint: {
-    fontWeight: 400,
-    letterSpacing: '0',
-    textTransform: 'none' as const,
-    color: 'rgba(255,255,255,0.2)',
-    fontSize: '0.68rem',
-    marginLeft: '4px',
-  },
-  keywordsPillBox: {
-    display: 'flex',
-    flexWrap: 'wrap' as const,
-    gap: '6px',
-    alignItems: 'center',
-    minHeight: '30px',
-  },
-  keywordInput: {
-    padding: '3px 10px',
-    borderRadius: '20px',
-    background: 'rgba(255,255,255,0.03)',
-    border: '1px dashed rgba(94,106,210,0.3)',
-    color: 'var(--color-text)',
-    fontSize: '0.72rem',
-    outline: 'none',
-    width: '130px',
-    fontFamily: 'inherit',
-    transition: 'border-color 0.15s ease',
-  },
-  // ── Table ──
-  tableWrapper: {
-    flex: 1,
-    overflowY: 'auto' as const,
-  },
-  table: {
-    width: '100%',
-    borderCollapse: 'collapse' as const,
-    tableLayout: 'fixed' as const,
-  },
-  th: {
-    padding: '9px 16px',
-    fontSize: '0.62rem',
-    fontWeight: 700,
-    letterSpacing: '0.1em',
-    textTransform: 'uppercase' as const,
-    color: 'var(--color-text-muted)',
-    textAlign: 'left' as const,
-    borderBottom: '1px solid rgba(255,255,255,0.06)',
-    background: 'rgba(255,255,255,0.02)',
-    position: 'sticky' as const,
-    top: 0,
-    zIndex: 1,
-    whiteSpace: 'nowrap' as const,
-  },
-  td: {
-    padding: '10px 16px',
-    verticalAlign: 'middle' as const,
-  },
-  // ── Add Question Form ──
-  addQuestionForm: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '10px',
-    padding: '12px 16px',
-    borderTop: '1px solid rgba(255,255,255,0.06)',
-    background: 'rgba(255,255,255,0.01)',
-    flexShrink: 0,
-  },
-  addQuestionInput: {
-    flex: 1,
-    padding: '8px 14px',
-    background: 'rgba(255,255,255,0.025)',
-    border: '1px solid rgba(255,255,255,0.07)',
-    borderRadius: '8px',
-    color: 'var(--color-text)',
-    fontSize: '0.8125rem',
-    outline: 'none',
-    fontFamily: 'inherit',
-    transition: 'border-color 0.2s ease, background 0.2s ease',
-  },
-  addQuestionBtn: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: '6px',
-    padding: '8px 18px',
-    borderRadius: '8px',
-    background: 'linear-gradient(135deg, #5e6ad2, #8b5cf6)',
-    color: 'white',
-    fontWeight: 600,
-    fontSize: '0.8125rem',
-    border: 'none',
-    cursor: 'pointer',
-    boxShadow: '0 2px 10px rgba(94,106,210,0.3)',
-    flexShrink: 0,
-    transition: 'opacity 0.2s ease',
-    fontFamily: 'inherit',
-    whiteSpace: 'nowrap' as const,
-  },
 };

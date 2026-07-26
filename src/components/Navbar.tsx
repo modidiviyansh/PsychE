@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, UserPlus, Activity, LogOut, BookOpen, Users, Settings as SettingsIcon, LayoutDashboard, X, BarChart2 } from 'lucide-react';
+import { Search, UserPlus, Activity, LogOut, BookOpen, Users, Settings as SettingsIcon, LayoutDashboard, X, BarChart2, Tag } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from '../lib/supabase';
@@ -222,6 +222,22 @@ export const Navbar: React.FC = () => {
         >
           <UserPlus size={16} />
           Add Student
+        </motion.button>
+        <motion.button 
+          onClick={() => navigate('/library')}
+          whileHover={{ scale: 1.1, color: 'var(--accent-purple)' }}
+          whileTap={{ scale: 0.95 }}
+          className="btn btn-secondary" style={{ padding: '0.5rem', background: 'transparent', border: 'none' }} title="Assessment Library"
+        >
+          <BookOpen size={20} />
+        </motion.button>
+        <motion.button 
+          onClick={() => navigate('/tags')}
+          whileHover={{ scale: 1.1, color: 'var(--accent-green)' }}
+          whileTap={{ scale: 0.95 }}
+          className="btn btn-secondary" style={{ padding: '0.5rem', background: 'transparent', border: 'none' }} title="Problem Tags"
+        >
+          <Tag size={20} />
         </motion.button>
         <div style={{ width: '1px', height: '24px', backgroundColor: 'var(--color-border)' }}></div>
         <motion.button 

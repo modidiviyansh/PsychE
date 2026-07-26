@@ -223,11 +223,22 @@ export const KanbanBoard: React.FC = () => {
 
   useEffect(() => {
     async function fetchBoardData() {
+      // Build a local-timezone-safe ISO date string (YYYY-MM-DD)
+      // IMPORTANT: toISOString() is UTC-based and shifts day in +05:30 timezones.
+      // We use local year/month/day components instead.
+      const toLocalDateStr = (d: Date): string => {
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${y}-${m}-${day}`;
+      };
+
       const today = new Date();
       today.setHours(0, 0, 0, 0);
+
       const endDate = new Date(today);
       endDate.setDate(endDate.getDate() + 6);
-      const endStr = endDate.toISOString().split('T')[0];
+      const endStr = toLocalDateStr(endDate);
 
       const capacityData = await getAvailableCapacityForDateRange(today, 7);
 
@@ -246,6 +257,7 @@ export const KanbanBoard: React.FC = () => {
       if (overdueLogs.length > 0) {
         daysArray.push({
           dateStr: 'overdue', label: 'Overdue', isOverdue: true,
+          // Overdue column has no capacity limit
           capacity: { booked: overdueLogs.length, total: overdueLogs.length },
           logs: overdueLogs
         });
@@ -254,13 +266,15 @@ export const KanbanBoard: React.FC = () => {
       for (let i = 0; i < 7; i++) {
         const d = new Date(today);
         d.setDate(d.getDate() + i);
-        const dStr = d.toISOString().split('T')[0];
+        const dStr = toLocalDateStr(d);
         const dayLogs = (logsData || []).filter(log => log.scheduled_date === dStr);
+        // Null-guard: capacityData[dStr] may be undefined if Supabase errored
+        const cap = capacityData[dStr] ?? { total: 7, booked: dayLogs.length, available: Math.max(0, 7 - dayLogs.length) };
         daysArray.push({
           dateStr: dStr,
           label: i === 0 ? 'Today' : new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(d),
           isOverdue: false,
-          capacity: capacityData[dStr],
+          capacity: cap,
           logs: dayLogs
         });
       }
@@ -370,7 +384,7 @@ export const KanbanBoard: React.FC = () => {
       <div style={{ display: 'flex', gap: '1.25rem', overflowX: 'auto', paddingBottom: '1.5rem', minHeight: '60vh' }}>
 
         {boardDays.map((day) => {
-          const isFull = day.capacity.booked >= day.capacity.total;
+          const isFull = (day.capacity?.booked ?? 0) >= (day.capacity?.total ?? 7);
 
           return (
             <motion.div

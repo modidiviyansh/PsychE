@@ -150,7 +150,7 @@ const SystemSettingsTab: React.FC = () => {
             <label className="text-h3" style={{ fontSize: '1rem', display: 'block', marginBottom: '0.5rem' }}>App Version</label>
             <p className="text-muted mb-4" style={{ fontSize: '0.875rem' }}>Current version of the UPsych : GCM Edition application.</p>
             <div className="input" style={{ maxWidth: '200px', backgroundColor: 'var(--color-bg-alt)', opacity: 0.8, cursor: 'not-allowed' }}>
-              Version: 3.0.0
+              Version: 4.0.0
             </div>
           </div>
 

@@ -126,11 +126,14 @@ export const AddLog: React.FC = () => {
       for (let i = 0; i < 7; i++) {
         const d = new Date(today);
         d.setDate(d.getDate() + i);
-        const dStr = d.toISOString().split('T')[0];
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        const dStr = `${y}-${m}-${day}`;
         arr.push({
           dateStr: dStr,
           label: i === 0 ? 'Today' : d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
-          capacity: cap[dStr]
+          capacity: cap[dStr] || { total: 7, booked: 0, available: 7 }
         });
       }
       setCapacityData(arr);

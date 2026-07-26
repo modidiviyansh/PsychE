@@ -1,567 +1,533 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Tag, Plus, Edit2, Trash2, Check, X, AlertTriangle } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { Tag, Plus, Trash2, Loader2, Hash } from 'lucide-react';
+import type { SystemTag, TagCategory } from '../types';
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-interface SystemTag {
-  id: string;
-  tag_name: string;
-  tag_category: string;
-  color_hex: string;
-  created_at: string;
+// =============================================================================
+//  Constants
+// =============================================================================
+
+const TAG_CATEGORIES: TagCategory[] = ['Behavioral', 'Academic', 'Career', 'Custom', 'General'];
+
+function categoryPillClass(cat: string): string {
+  switch (cat) {
+    case 'Behavioral': return 'pill pill--red';
+    case 'Academic':   return 'pill pill--blue';
+    case 'Career':     return 'pill pill--purple';
+    case 'Custom':     return 'pill pill--amber';
+    default:           return 'pill pill--green';
+  }
 }
 
-// ─── Constants ────────────────────────────────────────────────────────────────
-const CATEGORIES = ['Behavioral', 'Academic', 'Career', 'Custom'];
+// =============================================================================
+//  Types
+// =============================================================================
 
-const PALETTE: { hex: string; label: string }[] = [
-  { hex: '#ef4444', label: 'Red' },
-  { hex: '#f97316', label: 'Orange' },
-  { hex: '#f59e0b', label: 'Amber' },
-  { hex: '#84cc16', label: 'Lime' },
-  { hex: '#4ade80', label: 'Green' },
-  { hex: '#06b6d4', label: 'Cyan' },
-  { hex: '#3b82f6', label: 'Blue' },
-  { hex: '#8b5cf6', label: 'Violet' },
-  { hex: '#d946ef', label: 'Fuchsia' },
-  { hex: '#f43f5e', label: 'Rose' },
-];
+interface EditState {
+  tagId: string | null;
+  tag_name: string;
+  tag_category: TagCategory;
+  color_hex: string;
+}
 
-// ─── Category Badge ───────────────────────────────────────────────────────────
-const categoryStyle: Record<string, { bg: string; text: string; border: string }> = {
-  Behavioral: { bg: 'rgba(239,68,68,0.1)',  text: '#f87171', border: 'rgba(239,68,68,0.3)' },
-  Academic:   { bg: 'rgba(59,130,246,0.1)', text: '#60a5fa', border: 'rgba(59,130,246,0.3)' },
-  Career:     { bg: 'rgba(245,158,11,0.1)', text: '#fbbf24', border: 'rgba(245,158,11,0.3)' },
-  Custom:     { bg: 'rgba(139,92,246,0.1)', text: '#a78bfa', border: 'rgba(139,92,246,0.3)' },
-};
+const EDIT_EMPTY: EditState = { tagId: null, tag_name: '', tag_category: 'General', color_hex: '#4ade80' };
 
-// ─── Main Component ───────────────────────────────────────────────────────────
+interface NewTagState {
+  tag_name: string;
+  tag_category: TagCategory;
+  color_hex: string;
+}
+
+const NEW_EMPTY: NewTagState = { tag_name: '', tag_category: 'General', color_hex: '#4ade80' };
+
+// =============================================================================
+//  GlobalTagManager Component
+// =============================================================================
+
 export const GlobalTagManager: React.FC = () => {
-  const [tags, setTags]               = useState<SystemTag[]>([]);
-  const [newName, setNewName]         = useState('');
-  const [newCategory, setNewCategory] = useState('Behavioral');
-  const [newColor, setNewColor]       = useState('#4ade80');
-  const [loading, setLoading]         = useState(true);
-  const [submitting, setSubmitting]   = useState(false);
-  const [deletingId, setDeletingId]   = useState<string | null>(null);
+  const [tags, setTags] = useState<SystemTag[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  useEffect(() => { fetchTags(); }, []);
+  const [newTag, setNewTag] = useState<NewTagState>({ ...NEW_EMPTY });
+  const [creating, setCreating] = useState(false);
 
-  // ── Data Operations ──────────────────────────────────────────────────────
-  const fetchTags = async () => {
+  const [editState, setEditState] = useState<EditState>({ ...EDIT_EMPTY });
+  const [saving, setSaving] = useState(false);
+
+  const [deleteTarget, setDeleteTarget] = useState<SystemTag | null>(null);
+
+  const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
+
+  // ==========================================================================
+  //  Data fetching
+  // ==========================================================================
+
+  const showToast = useCallback((msg: string, type: 'success' | 'error' = 'success') => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 3000);
+  }, []);
+
+  const fetchTags = useCallback(async () => {
     setLoading(true);
     const { data, error } = await supabase
       .from('PsychE_System_Tags')
       .select('*')
-      .order('created_at', { ascending: true });
-    if (error) console.error('Error fetching tags:', error);
-    if (data) setTags(data as SystemTag[]);
+      .order('tag_category', { ascending: true })
+      .order('tag_name', { ascending: true });
+
+    if (error) { showToast('Failed to load tags', 'error'); }
+    else { setTags(data ?? []); }
     setLoading(false);
-  };
+  }, [showToast]);
 
-  const handleAddTag = async (e: React.FormEvent) => {
+  useEffect(() => { fetchTags(); }, [fetchTags]);
+
+  // ==========================================================================
+  //  Create
+  // ==========================================================================
+
+  const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newName.trim() || submitting) return;
-    setSubmitting(true);
-    try {
-      const { error } = await supabase.from('PsychE_System_Tags').insert([{
-        tag_name:     newName.trim(),
-        tag_category: newCategory,
-        color_hex:    newColor,
-      }]);
-      if (error) throw error;
-      setNewName('');
-      await fetchTags();
-    } catch (err) {
-      console.error('Error adding tag:', err);
-    } finally {
-      setSubmitting(false);
+    const name = newTag.tag_name.trim();
+    if (!name) { showToast('Tag name is required', 'error'); return; }
+
+    // Duplicate check (client-side)
+    if (tags.some(t => t.tag_name.toLowerCase() === name.toLowerCase())) {
+      showToast(`Tag "${name}" already exists`, 'error');
+      return;
     }
+
+    setCreating(true);
+    const { data, error } = await supabase
+      .from('PsychE_System_Tags')
+      .insert({
+        tag_name: name,
+        tag_category: newTag.tag_category,
+        color_hex: newTag.color_hex,
+      })
+      .select()
+      .single();
+
+    if (error || !data) {
+      showToast('Failed to create tag: ' + (error?.message ?? 'unknown error'), 'error');
+    } else {
+      setTags(prev => [data, ...prev]);
+      setNewTag({ ...NEW_EMPTY });
+      showToast(`Tag "${data.tag_name}" created`);
+    }
+    setCreating(false);
   };
 
-  const handleDeleteTag = async (id: string) => {
-    if (!window.confirm('Delete this global tag? It will be removed from all assigned students.')) return;
-    setDeletingId(id);
-    const { error } = await supabase.from('PsychE_System_Tags').delete().eq('id', id);
-    if (!error) setTags(prev => prev.filter(t => t.id !== id));
-    setDeletingId(null);
+  // ==========================================================================
+  //  Edit (inline)
+  // ==========================================================================
+
+  const startEdit = (tag: SystemTag) => {
+    setEditState({
+      tagId: tag.id,
+      tag_name: tag.tag_name,
+      tag_category: tag.tag_category as TagCategory,
+      color_hex: tag.color_hex,
+    });
   };
 
-  // ── Render ───────────────────────────────────────────────────────────────
+  const cancelEdit = () => setEditState({ ...EDIT_EMPTY });
+
+  const handleSaveEdit = async () => {
+    if (!editState.tagId) return;
+    const name = editState.tag_name.trim();
+    if (!name) { showToast('Tag name cannot be empty', 'error'); return; }
+
+    // Duplicate check (excluding the tag being edited)
+    if (tags.some(t => t.id !== editState.tagId && t.tag_name.toLowerCase() === name.toLowerCase())) {
+      showToast(`Tag "${name}" already exists`, 'error');
+      return;
+    }
+
+    setSaving(true);
+    const { error } = await supabase
+      .from('PsychE_System_Tags')
+      .update({
+        tag_name: name,
+        tag_category: editState.tag_category,
+        color_hex: editState.color_hex,
+      })
+      .eq('id', editState.tagId);
+
+    if (error) {
+      showToast('Save failed: ' + error.message, 'error');
+    } else {
+      setTags(prev => prev.map(t =>
+        t.id === editState.tagId
+          ? { ...t, tag_name: name, tag_category: editState.tag_category, color_hex: editState.color_hex }
+          : t
+      ));
+      showToast('Tag updated');
+      setEditState({ ...EDIT_EMPTY });
+    }
+    setSaving(false);
+  };
+
+  // ==========================================================================
+  //  Delete
+  // ==========================================================================
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget) return;
+    const { error } = await supabase
+      .from('PsychE_System_Tags')
+      .delete()
+      .eq('id', deleteTarget.id);
+
+    if (error) {
+      showToast('Delete failed: ' + error.message, 'error');
+    } else {
+      setTags(prev => prev.filter(t => t.id !== deleteTarget.id));
+      showToast(`Tag "${deleteTarget.tag_name}" deleted`);
+    }
+    setDeleteTarget(null);
+  };
+
+  // ==========================================================================
+  //  Render
+  // ==========================================================================
+
   return (
-    <div style={styles.wrapper}>
+    <div className="page-animate" style={{ padding: '1.5rem', maxWidth: '960px', margin: '0 auto' }}>
 
-      {/* ── Panel Header ── */}
-      <div style={styles.panelHeader}>
-        <div style={styles.headerLeft}>
-          <div style={styles.iconBadge}>
-            <Tag size={16} color="#5e6ad2" />
-          </div>
-          <div>
-            <h2 style={styles.panelTitle}>Global System Tags</h2>
-            <p style={styles.panelSubtitle}>
-              Manage problem-system tags assignable to any student profile.
-            </p>
-          </div>
+      {/* Page Title */}
+      <div style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+        <div style={{
+          width: 36, height: 36, borderRadius: 'var(--radius-md)',
+          background: 'linear-gradient(135deg, var(--accent-green), var(--accent-blue))',
+          display: 'flex', alignItems: 'center', justifyContent: 'center'
+        }}>
+          <Tag size={18} color="white" />
         </div>
-        <div style={styles.statsChip}>
-          <Hash size={13} />
-          <span>{tags.length} tag{tags.length !== 1 ? 's' : ''}</span>
+        <div>
+          <h1 style={{ fontSize: '1.1rem', fontWeight: 700, letterSpacing: '-0.02em', color: 'var(--text-primary)' }}>
+            Problem System Tags
+          </h1>
+          <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+            Create and manage global categorized tags for student profiles
+          </p>
         </div>
       </div>
 
-      {/* ── Inline Creation Toolbar ── */}
-      <form onSubmit={handleAddTag} style={styles.toolbar}>
-        {/* Tag Name */}
-        <div style={styles.fieldGroup}>
-          <label style={styles.fieldLabel}>TAG NAME</label>
-          <input
-            required
-            type="text"
-            placeholder="e.g., Academic Friction"
-            value={newName}
-            onChange={e => setNewName(e.target.value)}
-            style={styles.textInput}
-            onFocus={e => Object.assign((e.target as HTMLInputElement).style, styles.textInputFocus)}
-            onBlur={e => Object.assign((e.target as HTMLInputElement).style, { borderColor: 'rgba(255,255,255,0.08)', boxShadow: 'none' })}
-          />
+      {/* ── Create Tag Form ── */}
+      <div className="create-form-card">
+        <div style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)', marginBottom: '1rem' }}>
+          New Tag
         </div>
-
-        {/* Category */}
-        <div style={styles.fieldGroup}>
-          <label style={styles.fieldLabel}>CATEGORY</label>
-          <select
-            value={newCategory}
-            onChange={e => setNewCategory(e.target.value)}
-            style={styles.selectInput}
-          >
-            {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-          </select>
-        </div>
-
-        {/* Color Picker */}
-        <div style={styles.fieldGroup}>
-          <label style={styles.fieldLabel}>COLOR</label>
-          <div style={styles.colorRow}>
-            {PALETTE.map(({ hex, label }) => (
-              <button
-                key={hex}
-                type="button"
-                title={label}
-                onClick={() => setNewColor(hex)}
-                style={{
-                  ...styles.colorSwatch,
-                  backgroundColor: hex,
-                  boxShadow: newColor === hex
-                    ? `0 0 0 2px #0f1115, 0 0 0 4px ${hex}`
-                    : '0 0 0 2px transparent',
-                  transform: newColor === hex ? 'scale(1.2)' : 'scale(1)',
-                }}
+        <form onSubmit={handleCreate}>
+          <div className="create-form-row">
+            {/* Tag Name */}
+            <div className="form-field" style={{ flex: 2 }}>
+              <label className="form-label">Tag Name</label>
+              <input
+                className="form-input"
+                placeholder="e.g. Anxiety, Truancy, Peer Conflict..."
+                value={newTag.tag_name}
+                onChange={e => setNewTag(p => ({ ...p, tag_name: e.target.value }))}
+                maxLength={255}
               />
-            ))}
-            {/* Live preview chip */}
-            <div
-              style={{
-                ...styles.previewChip,
-                backgroundColor: `${newColor}18`,
-                border: `1px solid ${newColor}50`,
-                color: newColor,
-              }}
-            >
-              {newName || 'Preview'}
+            </div>
+
+            {/* Category */}
+            <div className="form-field">
+              <label className="form-label">Category</label>
+              <select
+                className="form-select"
+                value={newTag.tag_category}
+                onChange={e => setNewTag(p => ({ ...p, tag_category: e.target.value as TagCategory }))}
+              >
+                {TAG_CATEGORIES.map(cat => (
+                  <option key={cat} value={cat}>{cat}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Color */}
+            <div className="form-field" style={{ flex: '0 0 auto', minWidth: 'auto' }}>
+              <label className="form-label">Color</label>
+              <div className="color-picker-wrapper">
+                <input
+                  type="color"
+                  className="color-input"
+                  value={newTag.color_hex}
+                  onChange={e => setNewTag(p => ({ ...p, color_hex: e.target.value }))}
+                  title="Pick tag color"
+                />
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>
+                  {newTag.color_hex}
+                </span>
+              </div>
+            </div>
+
+            {/* Submit */}
+            <div className="form-field" style={{ flex: '0 0 auto', minWidth: 'auto', justifyContent: 'flex-end' }}>
+              <button
+                type="submit"
+                className="btn btn-primary"
+                disabled={creating || !newTag.tag_name.trim()}
+                style={{ padding: '0.625rem 1.25rem', marginTop: '1.375rem', whiteSpace: 'nowrap' }}
+              >
+                {creating ? '…' : <><Plus size={14} /> Create Tag</>}
+              </button>
             </div>
           </div>
-        </div>
 
-        {/* Submit */}
-        <div style={styles.submitGroup}>
-          <button
-            type="submit"
-            disabled={submitting || !newName.trim()}
-            style={{
-              ...styles.submitBtn,
-              opacity: !newName.trim() ? 0.5 : 1,
-              cursor: !newName.trim() ? 'not-allowed' : 'pointer',
-            }}
-          >
-            {submitting
-              ? <Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} />
-              : <Plus size={15} />
-            }
-            <span>Create Tag</span>
-          </button>
-        </div>
-      </form>
+          {/* Color preview */}
+          <div style={{ marginTop: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Preview:</span>
+            {newTag.tag_name && (
+              <span
+                className="tag-pill"
+                style={{ background: newTag.color_hex }}
+              >
+                {newTag.tag_name || 'Tag Name'}
+              </span>
+            )}
+            {newTag.tag_name && (
+              <span className={categoryPillClass(newTag.tag_category)}>
+                {newTag.tag_category}
+              </span>
+            )}
+          </div>
+        </form>
+      </div>
 
-      {/* ── Data Grid ── */}
-      <div className="table-scroll" style={styles.tableContainer}>
+      {/* ── Tag Table ── */}
+      <div className="data-grid-container">
         {loading ? (
-          <div style={styles.emptyState}>
-            <Loader2 size={22} color="#5e6ad2" style={{ animation: 'spin 1s linear infinite' }} />
-            <span style={{ color: 'var(--color-text-muted)', fontSize: '0.875rem' }}>Loading tags…</span>
+          <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+            Loading tags…
           </div>
         ) : tags.length === 0 ? (
-          <div style={styles.emptyState}>
-            <Tag size={32} color="rgba(255,255,255,0.12)" />
-            <p style={{ color: 'var(--color-text-muted)', fontSize: '0.875rem', textAlign: 'center' }}>
-              No tags created yet.<br />
-              <span style={{ color: 'rgba(255,255,255,0.3)' }}>Use the toolbar above to add your first tag.</span>
+          <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+            <Tag size={32} style={{ opacity: 0.3, marginBottom: '0.75rem' }} />
+            <p style={{ fontWeight: 500, marginBottom: '0.25rem', color: 'var(--text-secondary)' }}>
+              No tags yet
             </p>
+            <p style={{ fontSize: '0.8rem' }}>Create your first Problem System tag above.</p>
           </div>
         ) : (
-          <table style={styles.table}>
+          <table className="data-grid-table">
             <thead>
               <tr>
-                <th style={{ ...styles.th, width: '36px' }}></th>
-                <th style={styles.th}>TAG NAME</th>
-                <th style={styles.th}>CATEGORY</th>
-                <th style={styles.th}>COLOR</th>
-                <th style={{ ...styles.th, textAlign: 'right' }}>ACTIONS</th>
+                <th style={{ width: 32 }}></th>
+                <th>Tag Name</th>
+                <th>Category</th>
+                <th style={{ width: 120 }}>Color</th>
+                <th className="actions-cell">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {tags.map((tag, i) => (
-                <TagRow
-                  key={tag.id}
-                  tag={tag}
-                  index={i}
-                  deleting={deletingId === tag.id}
-                  onDelete={() => handleDeleteTag(tag.id)}
-                />
-              ))}
+              <AnimatePresence initial={false}>
+                {tags.map(tag => {
+                  const isEditing = editState.tagId === tag.id;
+                  return (
+                    <motion.tr
+                      key={tag.id}
+                      initial={{ opacity: 0, y: -4 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -4 }}
+                      transition={{ duration: 0.12 }}
+                    >
+                      {/* Color swatch */}
+                      <td>
+                        <div
+                          className="color-swatch"
+                          style={{ background: isEditing ? editState.color_hex : tag.color_hex }}
+                        />
+                      </td>
+
+                      {/* Tag Name */}
+                      <td>
+                        {isEditing ? (
+                          <input
+                            className="grid-cell-input"
+                            value={editState.tag_name}
+                            onChange={e => setEditState(p => ({ ...p, tag_name: e.target.value }))}
+                            autoFocus
+                            onKeyDown={e => { if (e.key === 'Enter') handleSaveEdit(); if (e.key === 'Escape') cancelEdit(); }}
+                          />
+                        ) : (
+                          <span style={{ fontWeight: 500 }}>{tag.tag_name}</span>
+                        )}
+                      </td>
+
+                      {/* Category */}
+                      <td>
+                        {isEditing ? (
+                          <select
+                            className="grid-cell-select"
+                            value={editState.tag_category}
+                            onChange={e => setEditState(p => ({ ...p, tag_category: e.target.value as TagCategory }))}
+                          >
+                            {TAG_CATEGORIES.map(cat => (
+                              <option key={cat} value={cat}>{cat}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <span className={categoryPillClass(tag.tag_category)}>{tag.tag_category}</span>
+                        )}
+                      </td>
+
+                      {/* Color picker (edit mode) */}
+                      <td>
+                        {isEditing ? (
+                          <div className="color-picker-wrapper">
+                            <input
+                              type="color"
+                              className="color-input"
+                              value={editState.color_hex}
+                              onChange={e => setEditState(p => ({ ...p, color_hex: e.target.value }))}
+                            />
+                            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>
+                              {editState.color_hex}
+                            </span>
+                          </div>
+                        ) : (
+                          <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>
+                            {tag.color_hex}
+                          </span>
+                        )}
+                      </td>
+
+                      {/* Actions */}
+                      <td className="actions-cell">
+                        <div style={{ display: 'flex', gap: '0.25rem', justifyContent: 'flex-end' }}>
+                          {isEditing ? (
+                            <>
+                              <button
+                                className="icon-btn success"
+                                onClick={handleSaveEdit}
+                                disabled={saving}
+                                title="Save"
+                              >
+                                {saving ? <span style={{ fontSize: '0.65rem' }}>…</span> : <Check size={14} />}
+                              </button>
+                              <button className="icon-btn" onClick={cancelEdit} title="Cancel">
+                                <X size={14} />
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <button
+                                className="icon-btn"
+                                onClick={() => startEdit(tag)}
+                                title="Edit tag"
+                              >
+                                <Edit2 size={14} />
+                              </button>
+                              <button
+                                className="icon-btn danger"
+                                onClick={() => setDeleteTarget(tag)}
+                                title="Delete tag"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </td>
+                    </motion.tr>
+                  );
+                })}
+              </AnimatePresence>
             </tbody>
           </table>
         )}
       </div>
 
-      {/* Spin keyframes injected once */}
-      <style>{`
-        @keyframes spin { to { transform: rotate(360deg); } }
-        @keyframes rowFadeIn {
-          from { opacity: 0; transform: translateY(6px); }
-          to   { opacity: 1; transform: translateY(0); }
-        }
-      `}</style>
+      {/* Tag count footer */}
+      {!loading && tags.length > 0 && (
+        <div style={{ marginTop: '0.75rem', fontSize: '0.72rem', color: 'var(--text-muted)', textAlign: 'right' }}>
+          {tags.length} tag{tags.length !== 1 ? 's' : ''} total
+        </div>
+      )}
+
+      {/* ── Delete Confirmation Modal ── */}
+      <AnimatePresence>
+        {deleteTarget && (
+          <motion.div
+            className="modal-overlay"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <motion.div
+              className="modal-panel"
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.875rem' }}>
+                <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(245, 91, 91, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <AlertTriangle size={18} style={{ color: 'var(--accent-red)' }} />
+                </div>
+                <h3 style={{ margin: 0 }}>Delete Tag?</h3>
+              </div>
+              <p>
+                Delete the tag <strong>"{deleteTarget.tag_name}"</strong>?
+                <br /><br />
+                It will be automatically <strong>unassigned from all students</strong> who currently have it. This action cannot be undone.
+              </p>
+              <div className="modal-actions">
+                <button
+                  className="btn"
+                  style={{ padding: '0.5rem 1.25rem', background: 'var(--bg-tertiary)', color: 'var(--text-secondary)', border: '1px solid var(--border-subtle)' }}
+                  onClick={() => setDeleteTarget(null)}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="btn"
+                  style={{ padding: '0.5rem 1.25rem', background: 'var(--accent-red)', color: '#fff', fontWeight: 600 }}
+                  onClick={handleConfirmDelete}
+                >
+                  <Trash2 size={14} /> Delete Tag
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Toast ── */}
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            initial={{ opacity: 0, y: 16, x: '-50%' }}
+            animate={{ opacity: 1, y: 0, x: '-50%' }}
+            exit={{ opacity: 0, y: 16, x: '-50%' }}
+            style={{
+              position: 'fixed',
+              bottom: '1.5rem',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              background: toast.type === 'success' ? 'rgba(63, 201, 143, 0.15)' : 'rgba(245, 91, 91, 0.15)',
+              border: `1px solid ${toast.type === 'success' ? 'rgba(63,201,143,0.4)' : 'rgba(245,91,91,0.4)'}`,
+              color: toast.type === 'success' ? 'var(--accent-green)' : 'var(--accent-red)',
+              padding: '0.625rem 1.25rem',
+              borderRadius: 'var(--radius-full)',
+              fontSize: '0.85rem',
+              fontWeight: 600,
+              backdropFilter: 'blur(12px)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              zIndex: 300,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {toast.type === 'success' ? <Check size={15} /> : <AlertTriangle size={15} />}
+            {toast.msg}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
-};
-
-// ─── Tag Row Sub-component ────────────────────────────────────────────────────
-interface TagRowProps {
-  tag: SystemTag;
-  index: number;
-  deleting: boolean;
-  onDelete: () => void;
-}
-
-const TagRow: React.FC<TagRowProps> = ({ tag, index, deleting, onDelete }) => {
-  const [hovered, setHovered] = useState(false);
-  const catStyle = categoryStyle[tag.tag_category] ?? categoryStyle['Custom'];
-
-  return (
-    <tr
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      style={{
-        ...styles.tr,
-        backgroundColor: hovered ? 'rgba(255,255,255,0.03)' : 'transparent',
-        animation: `rowFadeIn 0.25s ease ${index * 0.04}s both`,
-        opacity: deleting ? 0.4 : 1,
-        transition: 'background-color 0.15s ease, opacity 0.25s ease',
-      }}
-    >
-      {/* Color Indicator */}
-      <td style={styles.td}>
-        <div style={{
-          width: '10px',
-          height: '10px',
-          borderRadius: '50%',
-          backgroundColor: tag.color_hex,
-          boxShadow: `0 0 8px ${tag.color_hex}80`,
-          margin: '0 auto',
-        }} />
-      </td>
-
-      {/* Tag Name */}
-      <td style={styles.td}>
-        <span style={styles.tagName}>{tag.tag_name}</span>
-      </td>
-
-      {/* Category */}
-      <td style={styles.td}>
-        <span style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          fontSize: '0.72rem',
-          fontWeight: 600,
-          letterSpacing: '0.06em',
-          textTransform: 'uppercase' as const,
-          padding: '3px 9px',
-          borderRadius: '4px',
-          backgroundColor: catStyle.bg,
-          color: catStyle.text,
-          border: `1px solid ${catStyle.border}`,
-        }}>
-          {tag.tag_category}
-        </span>
-      </td>
-
-      {/* Color Badge */}
-      <td style={styles.td}>
-        <div style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: '6px',
-          padding: '3px 10px',
-          borderRadius: '20px',
-          backgroundColor: `${tag.color_hex}18`,
-          border: `1px solid ${tag.color_hex}40`,
-          fontSize: '0.75rem',
-          fontWeight: 500,
-          color: tag.color_hex,
-          fontFamily: 'var(--font-mono, monospace)',
-          letterSpacing: '0.04em',
-        }}>
-          <div style={{ width: '7px', height: '7px', borderRadius: '50%', backgroundColor: tag.color_hex, flexShrink: 0 }} />
-          {tag.color_hex.toUpperCase()}
-        </div>
-      </td>
-
-      {/* Actions */}
-      <td style={{ ...styles.td, textAlign: 'right' }}>
-        <button
-          onClick={onDelete}
-          disabled={deleting}
-          title="Delete tag"
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '5px',
-            padding: '5px 12px',
-            borderRadius: '6px',
-            fontSize: '0.75rem',
-            fontWeight: 500,
-            color: hovered ? '#f87171' : 'var(--color-text-muted)',
-            backgroundColor: hovered ? 'rgba(239,68,68,0.08)' : 'transparent',
-            border: `1px solid ${hovered ? 'rgba(239,68,68,0.25)' : 'transparent'}`,
-            transition: 'all 0.15s ease',
-            cursor: deleting ? 'not-allowed' : 'pointer',
-          }}
-        >
-          {deleting
-            ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} />
-            : <Trash2 size={13} />
-          }
-          Delete
-        </button>
-      </td>
-    </tr>
-  );
-};
-
-// ─── Styles ───────────────────────────────────────────────────────────────────
-const styles: Record<string, React.CSSProperties> = {
-  wrapper: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 0,
-    borderRadius: '16px',
-    background: 'rgba(24, 27, 33, 0.7)',
-    border: '1px solid rgba(255,255,255,0.07)',
-    backdropFilter: 'blur(20px)',
-    WebkitBackdropFilter: 'blur(20px)',
-    overflow: 'hidden',
-    boxShadow: '0 8px 40px rgba(0,0,0,0.35)',
-  },
-  panelHeader: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: '1.25rem 1.5rem',
-    borderBottom: '1px solid rgba(255,255,255,0.06)',
-    background: 'rgba(255,255,255,0.02)',
-  },
-  headerLeft: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '12px',
-  },
-  iconBadge: {
-    width: '36px',
-    height: '36px',
-    borderRadius: '10px',
-    background: 'rgba(94,106,210,0.15)',
-    border: '1px solid rgba(94,106,210,0.25)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
-  },
-  panelTitle: {
-    fontSize: '0.9375rem',
-    fontWeight: 600,
-    color: 'var(--color-text)',
-    letterSpacing: '-0.01em',
-    margin: 0,
-  },
-  panelSubtitle: {
-    fontSize: '0.78rem',
-    color: 'var(--color-text-muted)',
-    margin: 0,
-    marginTop: '2px',
-  },
-  statsChip: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: '5px',
-    padding: '4px 10px',
-    borderRadius: '20px',
-    background: 'rgba(94,106,210,0.1)',
-    border: '1px solid rgba(94,106,210,0.2)',
-    color: '#818cf8',
-    fontSize: '0.75rem',
-    fontWeight: 600,
-    letterSpacing: '0.02em',
-  },
-  // ─── Toolbar ───
-  toolbar: {
-    display: 'flex',
-    alignItems: 'flex-end',
-    flexWrap: 'wrap' as const,
-    gap: '1rem',
-    padding: '1.25rem 1.5rem',
-    borderBottom: '1px solid rgba(255,255,255,0.06)',
-    background: 'rgba(15,17,21,0.4)',
-  },
-  fieldGroup: {
-    display: 'flex',
-    flexDirection: 'column' as const,
-    gap: '6px',
-    flex: '1',
-    minWidth: '140px',
-  },
-  fieldLabel: {
-    fontSize: '0.65rem',
-    fontWeight: 700,
-    letterSpacing: '0.1em',
-    color: 'var(--color-text-muted)',
-    textTransform: 'uppercase' as const,
-  },
-  textInput: {
-    padding: '0.5rem 0.75rem',
-    background: 'rgba(255,255,255,0.04)',
-    border: '1px solid rgba(255,255,255,0.08)',
-    borderRadius: '8px',
-    color: 'var(--color-text)',
-    fontSize: '0.875rem',
-    outline: 'none',
-    transition: 'all 0.2s ease',
-    width: '100%',
-  },
-  textInputFocus: {
-    borderColor: 'var(--color-primary)',
-    boxShadow: '0 0 0 3px rgba(94,106,210,0.2)',
-    background: 'rgba(255,255,255,0.06)',
-  },
-  selectInput: {
-    padding: '0.5rem 0.75rem',
-    background: 'rgba(255,255,255,0.04)',
-    border: '1px solid rgba(255,255,255,0.08)',
-    borderRadius: '8px',
-    color: 'var(--color-text)',
-    fontSize: '0.875rem',
-    outline: 'none',
-    width: '100%',
-    cursor: 'pointer',
-  },
-  colorRow: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '6px',
-    flexWrap: 'wrap' as const,
-    paddingTop: '2px',
-  },
-  colorSwatch: {
-    width: '20px',
-    height: '20px',
-    borderRadius: '50%',
-    border: 'none',
-    cursor: 'pointer',
-    transition: 'transform 0.15s ease, box-shadow 0.15s ease',
-    flexShrink: 0,
-  },
-  previewChip: {
-    padding: '3px 10px',
-    borderRadius: '20px',
-    fontSize: '0.72rem',
-    fontWeight: 600,
-    whiteSpace: 'nowrap' as const,
-    maxWidth: '130px',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    marginLeft: '4px',
-  },
-  submitGroup: {
-    display: 'flex',
-    alignItems: 'flex-end',
-    flexShrink: 0,
-  },
-  submitBtn: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: '6px',
-    padding: '0.5rem 1.25rem',
-    borderRadius: '8px',
-    background: 'linear-gradient(135deg, #5e6ad2, #8b5cf6)',
-    color: 'white',
-    fontWeight: 600,
-    fontSize: '0.8125rem',
-    border: 'none',
-    boxShadow: '0 4px 12px rgba(94,106,210,0.35)',
-    transition: 'opacity 0.2s ease, box-shadow 0.2s ease, transform 0.15s ease',
-    whiteSpace: 'nowrap' as const,
-  },
-  // ─── Table ───
-  tableContainer: {
-    overflowX: 'auto' as const,
-    minHeight: '200px',
-  },
-  table: {
-    width: '100%',
-    borderCollapse: 'collapse' as const,
-    fontSize: '0.875rem',
-  },
-  th: {
-    padding: '0.65rem 1.25rem',
-    fontSize: '0.65rem',
-    fontWeight: 700,
-    letterSpacing: '0.1em',
-    textTransform: 'uppercase' as const,
-    color: 'var(--color-text-muted)',
-    textAlign: 'left' as const,
-    borderBottom: '1px solid rgba(255,255,255,0.06)',
-    background: 'rgba(255,255,255,0.02)',
-    whiteSpace: 'nowrap' as const,
-  },
-  tr: {
-    borderBottom: '1px solid rgba(255,255,255,0.04)',
-  },
-  td: {
-    padding: '0.875rem 1.25rem',
-    verticalAlign: 'middle' as const,
-  },
-  tagName: {
-    fontWeight: 500,
-    color: 'var(--color-text)',
-    letterSpacing: '-0.01em',
-  },
-  emptyState: {
-    display: 'flex',
-    flexDirection: 'column' as const,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: '12px',
-    padding: '3rem 1.5rem',
-    minHeight: '200px',
-  },
 };

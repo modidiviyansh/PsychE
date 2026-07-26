@@ -12,6 +12,8 @@ import { BulkSchedule } from './pages/BulkSchedule';
 import { PinScreen } from './components/PinScreen';
 import { ReportExport } from './pages/ReportExport';
 import { Analytics } from './pages/Analytics';
+import { LibraryManager } from './components/LibraryManager';
+import { GlobalTagManager } from './components/GlobalTagManager';
 
 export default function App() {
   return (
@@ -33,9 +35,13 @@ export default function App() {
           <Route path="kanban" element={<KanbanBoard />} />
           <Route path="bulk-schedule" element={<BulkSchedule />} />
           <Route path="analytics" element={<Analytics />} />
+          {/* V3 Routes */}
+          <Route path="library" element={<LibraryManager />} />
+          <Route path="tags" element={<GlobalTagManager />} />
         </Route>
         <Route path="/report" element={<PinScreen><ReportExport /></PinScreen>} />
       </Routes>
     </BrowserRouter>
   );
 }
+

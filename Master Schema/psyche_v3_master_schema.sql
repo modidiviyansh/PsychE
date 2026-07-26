@@ -79,13 +79,13 @@ CREATE TABLE "PsychE_Settings" (
     id                       INT           PRIMARY KEY DEFAULT 1,
     daily_session_capacity   INT           DEFAULT 7,
     allowed_pins             TEXT          DEFAULT '2001,0987,0999,2580', -- added: v4
-    app_version              VARCHAR(20)   DEFAULT '3.0.0',              -- added: v4
-    assessment_cooldown_days INT           DEFAULT 30                    -- added: v9
+    app_version              VARCHAR(20)   DEFAULT '4.0.0',              -- added: v4
+    assessment_cooldown_days INT           DEFAULT 30,                  -- added: v14
+    created_at               TIMESTAMPTZ   DEFAULT NOW()
 );
 
--- Seed the single required settings row
 INSERT INTO "PsychE_Settings" (id, daily_session_capacity, allowed_pins, app_version, assessment_cooldown_days)
-VALUES (1, 7, '2001, 0987, 0999, 2580', '3.0.0', 30)
+VALUES (1, 7, '2001, 0987, 0999, 2580', '4.0.0', 30)
 ON CONFLICT (id) DO NOTHING;
 
 -- ─── 2.3  PsychE_Modules ─────────────────────────────────────────────────────
