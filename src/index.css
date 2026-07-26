@@ -503,6 +503,7 @@ p, h1, h2, h3, h4, h5, h6, span {
 .pill--red    { background: rgba(245, 91, 91, 0.15);  color: var(--accent-red);    border: 1px solid rgba(245, 91, 91, 0.3); }
 .pill--amber  { background: rgba(245, 166, 35, 0.15); color: var(--accent-amber);  border: 1px solid rgba(245, 166, 35, 0.3); }
 .pill--muted  { background: rgba(255, 255, 255, 0.05); color: var(--text-secondary); border: 1px solid var(--border-subtle); }
+.pill--domain { background: rgba(94, 106, 210, 0.18); color: #818cf8;              border: 1px solid rgba(94, 106, 210, 0.35); font-family: monospace; font-weight: 700; }
 
 /* Keyword pills (smart_keywords editor) */
 .keyword-pill {

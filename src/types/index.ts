@@ -37,10 +37,17 @@ export interface Settings {
 
 export type ModuleType = 'COMPE' | 'PsycheSPA' | 'Custom';
 
+export interface Domain {
+  code: string;                       // VARCHAR(10) PK
+  name: string;                       // VARCHAR(100) NOT NULL
+  description?: string | null;        // TEXT
+}
+
 export interface Module {
   id: string;                       // UUID PK
   name: string;
   type: ModuleType;                 // CHECK: COMPE | PsycheSPA | Custom
+  domain_code?: string | null;      // FK → PsychE_Domains(code)
   description?: string | null;
   smart_keywords: string[];         // TEXT[] — GIN-indexed
   is_locked: boolean;               // One-time-edit lock flag
@@ -171,4 +178,37 @@ export interface AssessmentSummary {
   score_percentage: number;         // 0–100
   response_count: number;
   computed_at: string;              // ISO timestamptz
+}
+
+export interface DomainScores {
+  BHV: number | null;
+  SOC: number | null;
+  COG: number | null;
+  EMH: number | null;
+  FAM: number | null;
+  CAR: number | null;
+  SEL: number | null;
+}
+
+export interface TelemetryTensions {
+  T_cognitive_emotional: number | null;
+  T_social_home: number | null;
+  T_internal_external: number | null;
+}
+
+export interface TelemetryPayload {
+  student_uuid?: string;
+  session_count: number;
+  data_completeness: number;
+  archetype: string;
+  domain_scores: DomainScores;
+  tensions: TelemetryTensions;
+  calculated_at?: string;
+}
+
+export interface StudentTelemetry {
+  id: string;
+  student_uuid: string;
+  calculated_at: string;
+  metrics_payload: TelemetryPayload;
 }

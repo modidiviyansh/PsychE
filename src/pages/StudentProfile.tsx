@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Edit2, Calendar, Phone, Mail, BookOpen, ArrowLeft, Eye, EyeOff, User, BrainCircuit, ChevronDown, ChevronUp, FileDown, X, Tag, Plus } from 'lucide-react';
+import { Edit2, Calendar, Phone, Mail, BookOpen, ArrowLeft, Eye, EyeOff, User, BrainCircuit, ChevronDown, ChevronUp, FileDown, X, Tag, Plus, Activity, Sparkles, AlertTriangle } from 'lucide-react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, Tooltip } from 'recharts';
 import { supabase } from '../lib/supabase';
 import { AssessmentWizard } from '../components/AssessmentWizard';
+import type { TelemetryPayload } from '../types';
 
 const container = {
   hidden: { opacity: 0 },
@@ -43,6 +45,9 @@ export const StudentProfile: React.FC = () => {
   // Timeline States
   const [expandedLogs, setExpandedLogs] = useState<Set<string>>(new Set());
 
+  // Telemetry State
+  const [telemetry, setTelemetry] = useState<TelemetryPayload | null>(null);
+
   // Date Range Report States
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [reportType, setReportType] = useState('custom');
@@ -74,6 +79,19 @@ export const StudentProfile: React.FC = () => {
         if (logsError) throw logsError;
         
         setLogs(logsData || []);
+
+        // Fetch Telemetry
+        const { data: telemetryRow } = await supabase
+          .from('PsychE_Student_Telemetry')
+          .select('*')
+          .eq('student_uuid', studentData.id)
+          .order('calculated_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (telemetryRow?.metrics_payload) {
+          setTelemetry(telemetryRow.metrics_payload as TelemetryPayload);
+        }
 
         // Fetch Tags
         const { data: sysTags } = await supabase.from('PsychE_System_Tags').select('*');
@@ -346,8 +364,184 @@ export const StudentProfile: React.FC = () => {
           </div>
         </motion.div>
 
-        {/* History Timeline */}
+        {/* ── Clinical Telemetry & Radar Cockpit Card ── */}
         <motion.div variants={item} className="bento-card col-span-8">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.75rem' }}>
+            <div>
+              <h3 className="text-h3" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <BrainCircuit size={20} color="var(--color-primary)" />
+                Clinical Telemetry Profile
+              </h3>
+              <p className="text-muted" style={{ fontSize: '0.8rem', marginTop: '2px' }}>
+                90-Day Rolling Multi-Domain Diagnostic Assessment
+              </p>
+            </div>
+
+            {telemetry && telemetry.data_completeness > 0 && (
+              <div style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.4rem',
+                padding: '0.35rem 0.85rem',
+                borderRadius: 'var(--radius-full)',
+                backgroundColor: 'rgba(99, 102, 241, 0.15)',
+                border: '1px solid rgba(99, 102, 241, 0.35)',
+                color: '#818cf8',
+                fontSize: '0.8125rem',
+                fontWeight: 600
+              }}>
+                <Sparkles size={14} />
+                {telemetry.archetype}
+              </div>
+            )}
+          </div>
+
+          {(!telemetry || telemetry.data_completeness === 0 || telemetry.session_count === 0) ? (
+            /* Condition A: Cold Start Empty State */
+            <div style={{
+              padding: '2.5rem 1.5rem',
+              textAlign: 'center',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '0.75rem',
+              backgroundColor: 'rgba(0, 0, 0, 0.2)',
+              borderRadius: 'var(--radius-md)',
+              border: '1px dashed var(--color-border)'
+            }}>
+              <div style={{
+                width: 48,
+                height: 48,
+                borderRadius: '50%',
+                backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: 'var(--color-text-muted)'
+              }}>
+                <Activity size={24} />
+              </div>
+              <div>
+                <p style={{ fontWeight: 600, fontSize: '0.925rem', color: 'var(--color-text)', marginBottom: '0.25rem' }}>
+                  Clinical profile is currently gathering data for the new term
+                </p>
+                <p style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>
+                  No assessment telemetry available in the 90-day lookback window.
+                </p>
+              </div>
+              <button
+                className="btn btn-primary"
+                style={{ marginTop: '0.5rem', padding: '0.5rem 1.25rem', fontSize: '0.8125rem' }}
+                onClick={() => navigate(`/add-log?student=${student.id}`)}
+              >
+                + Schedule Baseline Assessment
+              </button>
+            </div>
+          ) : (
+            /* Condition B: Active Radar Chart & Tensions */
+            <div>
+              <div style={{ height: 260, width: '100%', position: 'relative' }}>
+                {(() => {
+                  const domainLabelMap: Record<string, string> = {
+                    BHV: 'Behavioural (BHV)',
+                    SOC: 'Social (SOC)',
+                    COG: 'Cognitive (COG)',
+                    EMH: 'Emotional (EMH)',
+                    FAM: 'Family (FAM)',
+                    CAR: 'Career (CAR)',
+                    SEL: 'Self & Identity (SEL)'
+                  };
+
+                  const radarData = Object.entries(telemetry.domain_scores || {}).map(([code, val]) => ({
+                    domain: domainLabelMap[code] || code,
+                    score: val !== null ? Math.round((val as number) * 100) : 0,
+                    fullMark: 100,
+                  }));
+
+                  return (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <RadarChart cx="50%" cy="50%" outerRadius="75%" data={radarData}>
+                        <PolarGrid stroke="rgba(255, 255, 255, 0.12)" />
+                        <PolarAngleAxis
+                          dataKey="domain"
+                          stroke="var(--color-text-muted)"
+                          tick={{ fill: 'var(--color-text-muted)', fontSize: 11, fontWeight: 500 }}
+                        />
+                        <PolarRadiusAxis
+                          angle={30}
+                          domain={[0, 100]}
+                          stroke="rgba(255, 255, 255, 0.15)"
+                          tick={{ fontSize: 9, fill: 'var(--color-text-muted)' }}
+                        />
+                        <Radar
+                          name="Domain Score (%)"
+                          dataKey="score"
+                          stroke="#818cf8"
+                          fill="#6366f1"
+                          fillOpacity={0.35}
+                        />
+                        <Tooltip
+                          contentStyle={{
+                            backgroundColor: '#181b21',
+                            borderColor: 'rgba(255,255,255,0.15)',
+                            borderRadius: '8px',
+                            color: '#fff',
+                            fontSize: '12px'
+                          }}
+                          formatter={(value: any) => [`${value}%`, 'Score']}
+                        />
+                      </RadarChart>
+                    </ResponsiveContainer>
+                  );
+                })()}
+              </div>
+
+              {/* Tension Alerts */}
+              {(() => {
+                const tensionWarnings: string[] = [];
+                if (telemetry.tensions) {
+                  if (Math.abs(telemetry.tensions.T_cognitive_emotional ?? 0) > 0.3) {
+                    tensionWarnings.push('High Cognitive / Emotional Tension Detected');
+                  }
+                  if (Math.abs(telemetry.tensions.T_social_home ?? 0) > 0.3) {
+                    tensionWarnings.push('High Social / Home Dynamics Tension Detected');
+                  }
+                  if (Math.abs(telemetry.tensions.T_internal_external ?? 0) > 0.3) {
+                    tensionWarnings.push('High Internal / External Tension Detected');
+                  }
+                }
+
+                if (tensionWarnings.length === 0) return null;
+
+                return (
+                  <div style={{
+                    marginTop: '0.875rem',
+                    padding: '0.75rem 1rem',
+                    borderRadius: 'var(--radius-md)',
+                    backgroundColor: 'rgba(245, 158, 11, 0.12)',
+                    border: '1px solid rgba(245, 158, 11, 0.3)',
+                    color: '#f59e0b',
+                    fontSize: '0.8125rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.6rem'
+                  }}>
+                    <AlertTriangle size={16} style={{ flexShrink: 0 }} />
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                      {tensionWarnings.map((warn, idx) => (
+                        <span key={idx} style={{ fontWeight: 600 }}>⚠️ {warn}</span>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+        </motion.div>
+
+        {/* History Timeline */}
+        <motion.div variants={item} className="bento-card col-span-12">
           <div className="flex justify-between items-center mb-6 mobile-stack mobile-stack-start" style={{ gap: '1rem' }}>
             <h3 className="text-h3">Counseling History</h3>
             <motion.button 

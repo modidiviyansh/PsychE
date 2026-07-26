@@ -1,11 +1,11 @@
 # Graph Report - PsychE  (2026-07-26)
 
 ## Corpus Check
-- 54 files · ~55,643 words
+- 54 files · ~53,682 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 446 nodes · 547 edges · 31 communities (25 shown, 6 thin omitted)
+- 440 nodes · 539 edges · 31 communities (25 shown, 6 thin omitted)
 - Extraction: 100% EXTRACTED · 0% INFERRED · 0% AMBIGUOUS
 - Token cost: 0 input · 0 output
 
@@ -75,20 +75,20 @@
 ## Communities (31 total, 6 thin omitted)
 
 ### Community 0 - "App.tsx"
-Cohesion: 0.07
-Nodes (31): App(), Layout(), LiveAssessmentModalProps, Navbar(), PinScreen(), PinScreenProps, supabase, AddLog() (+23 more)
+Cohesion: 0.06
+Nodes (37): App(), AssessmentWizard(), AssessmentWizardProps, Layout(), LiveAssessmentModalProps, Navbar(), PinScreen(), PinScreenProps (+29 more)
 
 ### Community 1 - "GUIDE_developer.md"
 Cohesion: 0.07
 Nodes (28): 1.1 Core Design Philosophy, 1.2 Layout Paradigms, 1.3 Color Tokens (defined in `src/index.css`), 1.4 Typography, 1.5 Micro-Animations, 1. UI Language & Design System, 2.1 File & Folder Conventions, 2.2 TypeScript Interfaces (+20 more)
 
 ### Community 2 - "index.ts"
-Cohesion: 0.06
-Nodes (41): categoryPillClass(), EDIT_EMPTY, EditState, GlobalTagManager(), NEW_EMPTY, NewTagState, TAG_CATEGORIES, DeleteQModalState (+33 more)
+Cohesion: 0.07
+Nodes (38): categoryPillClass(), EDIT_EMPTY, EditState, GlobalTagManager(), NEW_EMPTY, NewTagState, TAG_CATEGORIES, DeleteQModalState (+30 more)
 
 ### Community 3 - "dependencies"
-Cohesion: 0.06
-Nodes (31): body-parser, clsx, cors, date-fns, dotenv, express, framer-motion, lucide-react (+23 more)
+Cohesion: 0.07
+Nodes (29): body-parser, clsx, cors, date-fns, dotenv, express, framer-motion, lucide-react (+21 more)
 
 ### Community 4 - "devDependencies"
 Cohesion: 0.07
@@ -131,8 +131,8 @@ Cohesion: 0.17
 Nodes (11): engines, node, name, private, scripts, build, dev, lint (+3 more)
 
 ### Community 14 - "assessmentEngine.ts"
-Cohesion: 0.17
-Nodes (13): AssessmentWizard(), AssessmentWizardProps, AssessmentQuestion, buildAssessmentSummary(), computeModuleScore(), effectiveScore(), fetchAssessmentQuestions(), reverseScore() (+5 more)
+Cohesion: 0.36
+Nodes (6): AssessmentQuestion, buildAssessmentSummary(), computeModuleScore(), effectiveScore(), reverseScore(), AssessmentSummary
 
 ### Community 16 - "agent.md — PsychE Session Entry Point"
 Cohesion: 0.22
@@ -167,7 +167,7 @@ Cohesion: 0.50
 Nodes (3): Expanding the ESLint configuration, React Compiler, React + TypeScript + Vite
 
 ## Knowledge Gaps
-- **249 isolated node(s):** `name`, `private`, `version`, `type`, `node` (+244 more)
+- **245 isolated node(s):** `name`, `private`, `version`, `type`, `node` (+240 more)
   These have ≤1 connection - possible missing edges or undocumented components.
 - **6 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
@@ -175,16 +175,16 @@ Nodes (3): Expanding the ESLint configuration, React Compiler, React + TypeScrip
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `dependencies` connect `dependencies` to `package.json`?**
-  _High betweenness centrality (0.016) - this node is a cross-community bridge._
+  _High betweenness centrality (0.015) - this node is a cross-community bridge._
+- **Why does `supabase` connect `App.tsx` to `index.ts`, `capacity.ts`, `assessmentEngine.ts`?**
+  _High betweenness centrality (0.015) - this node is a cross-community bridge._
 - **Why does `devDependencies` connect `devDependencies` to `package.json`?**
   _High betweenness centrality (0.014) - this node is a cross-community bridge._
-- **Why does `supabase` connect `App.tsx` to `index.ts`, `capacity.ts`, `assessmentEngine.ts`?**
-  _High betweenness centrality (0.014) - this node is a cross-community bridge._
 - **What connects `name`, `private`, `version` to the rest of the system?**
-  _249 weakly-connected nodes found - possible documentation gaps or missing edges._
+  _245 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `App.tsx` be split into smaller, more focused modules?**
-  _Cohesion score 0.07013574660633484 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.062146892655367235 - nodes in this community are weakly interconnected._
 - **Should `GUIDE_developer.md` be split into smaller, more focused modules?**
   _Cohesion score 0.06666666666666667 - nodes in this community are weakly interconnected._
 - **Should `index.ts` be split into smaller, more focused modules?**
-  _Cohesion score 0.06475485661424607 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.0708245243128964 - nodes in this community are weakly interconnected._

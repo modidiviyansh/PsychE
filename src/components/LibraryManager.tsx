@@ -5,7 +5,7 @@ import {
   ToggleLeft, ToggleRight, Trash2, Save, AlertTriangle, Check
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import type { Module, Question, ModuleType, QuestionLabels } from '../types';
+import type { Module, Question, ModuleType, QuestionLabels, Domain } from '../types';
 import { DEFAULT_LABELS } from '../types';
 
 // =============================================================================
@@ -222,6 +222,7 @@ const QuestionCard: React.FC<QuestionCardProps> = ({
 export const LibraryManager: React.FC = () => {
   // --- Module list state ---
   const [modules, setModules] = useState<ModuleWithCount[]>([]);
+  const [domains, setDomains] = useState<Domain[]>([]);
   const [filteredModules, setFilteredModules] = useState<ModuleWithCount[]>([]);
   const [moduleFilter, setModuleFilter] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -236,6 +237,7 @@ export const LibraryManager: React.FC = () => {
   // --- Module field editing ---
   const [editName, setEditName] = useState('');
   const [editType, setEditType] = useState<ModuleType>('COMPE');
+  const [editDomainCode, setEditDomainCode] = useState<string>('');
   const [editDescription, setEditDescription] = useState('');
 
   // --- Keywords ---
@@ -256,6 +258,19 @@ export const LibraryManager: React.FC = () => {
   const showToast = useCallback((msg: string, type: 'success' | 'error' = 'success') => {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 3000);
+  }, []);
+
+  const fetchDomains = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('PsychE_Domains')
+      .select('*')
+      .order('code', { ascending: true });
+
+    if (error) {
+      console.warn('PsychE_Domains table query warning:', error.message);
+    } else if (data) {
+      setDomains(data);
+    }
   }, []);
 
   const fetchModules = useCallback(async () => {
@@ -305,7 +320,10 @@ export const LibraryManager: React.FC = () => {
     setQuestionsLoading(false);
   }, [showToast]);
 
-  useEffect(() => { fetchModules(); }, [fetchModules]);
+  useEffect(() => {
+    fetchDomains();
+    fetchModules();
+  }, [fetchDomains, fetchModules]);
 
   // Filter modules by name
   useEffect(() => {
@@ -321,6 +339,7 @@ export const LibraryManager: React.FC = () => {
     setSelectedModule(mod);
     setEditName(mod.name);
     setEditType(mod.type);
+    setEditDomainCode(mod.domain_code ?? '');
     setEditDescription(mod.description ?? '');
     setKeywords(mod.smart_keywords ?? []);
     setShowInactive(false);
@@ -332,9 +351,10 @@ export const LibraryManager: React.FC = () => {
   // ==========================================================================
 
   const handleCreateModule = async () => {
+    const defaultDomain = domains.length > 0 ? domains[0].code : null;
     const { data, error } = await supabase
       .from('PsychE_Modules')
-      .insert({ name: 'New Module', type: 'COMPE', smart_keywords: [] })
+      .insert({ name: 'New Module', type: 'COMPE', domain_code: defaultDomain, smart_keywords: [] })
       .select()
       .single();
 
@@ -365,6 +385,11 @@ export const LibraryManager: React.FC = () => {
   const handleTypeChange = async (newType: ModuleType) => {
     setEditType(newType);
     await patchModule({ type: newType });
+  };
+
+  const handleDomainChange = async (newDomainCode: string) => {
+    setEditDomainCode(newDomainCode);
+    await patchModule({ domain_code: newDomainCode || null });
   };
 
   const handleDescriptionBlur = async () => {
@@ -570,6 +595,15 @@ export const LibraryManager: React.FC = () => {
                   <div className="master-item-name">{mod.name}</div>
                   <div className="master-item-meta">
                     <span className={moduleTypePillClass(mod.type)}>{moduleTypeLabel(mod.type)}</span>
+                    {mod.domain_code ? (
+                      <span className="pill pill--domain" title={domains.find(d => d.code === mod.domain_code)?.name ?? mod.domain_code}>
+                        {mod.domain_code}
+                      </span>
+                    ) : (
+                      <span className="pill pill--muted" style={{ opacity: 0.6, fontSize: '0.65rem' }}>
+                        No Domain
+                      </span>
+                    )}
                     <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
                       {mod.question_count}Q
                     </span>
@@ -635,6 +669,22 @@ export const LibraryManager: React.FC = () => {
                       <option value="COMPE">COMPE (Likert)</option>
                       <option value="PsycheSPA">PsycheSPA (Formal)</option>
                       <option value="Custom">Custom</option>
+                    </select>
+
+                    <select
+                      className="module-type-select"
+                      value={editDomainCode}
+                      disabled={selectedModule.is_locked}
+                      onChange={e => handleDomainChange(e.target.value)}
+                      required
+                      title="Assign a Master Domain to this module"
+                    >
+                      <option value="" disabled>-- Select Master Domain --</option>
+                      {domains.map(d => (
+                        <option key={d.code} value={d.code}>
+                          {d.code} - {d.name}
+                        </option>
+                      ))}
                     </select>
 
                     {selectedModule.is_locked ? (
