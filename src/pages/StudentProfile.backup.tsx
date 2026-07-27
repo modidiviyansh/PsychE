@@ -47,7 +47,6 @@ export const StudentProfile: React.FC = () => {
 
   // Telemetry State
   const [telemetry, setTelemetry] = useState<TelemetryPayload | null>(null);
-  const [activeTab, setActiveTab] = useState<'profile' | 'telemetry'>('profile');
 
   // Date Range Report States
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
@@ -244,38 +243,9 @@ export const StudentProfile: React.FC = () => {
         </div>
       </motion.div>
 
-      {/* Tabs */}
-      <div className="flex gap-4 mb-6" style={{ borderBottom: '1px solid var(--color-border)', paddingBottom: '0.5rem' }}>
-        <button 
-          onClick={() => setActiveTab('profile')} 
-          style={{ 
-            background: 'none', border: 'none', cursor: 'pointer', padding: '0.5rem 1rem',
-            fontWeight: 600, color: activeTab === 'profile' ? 'var(--color-text)' : 'var(--color-text-muted)',
-            borderBottom: activeTab === 'profile' ? '2px solid var(--color-primary)' : '2px solid transparent',
-            transition: 'all 0.2s'
-          }}
-        >
-          Profile & History
-        </button>
-        <button 
-          onClick={() => setActiveTab('telemetry')} 
-          style={{ 
-            background: 'none', border: 'none', cursor: 'pointer', padding: '0.5rem 1rem',
-            fontWeight: 600, color: activeTab === 'telemetry' ? 'var(--color-text)' : 'var(--color-text-muted)',
-            borderBottom: activeTab === 'telemetry' ? '2px solid var(--color-primary)' : '2px solid transparent',
-            transition: 'all 0.2s'
-          }}
-        >
-          <Sparkles size={16} style={{ display: 'inline', marginRight: '0.5rem', marginBottom: '2px' }} />
-          Telemetry Analytics
-        </button>
-      </div>
-
       <div className="bento-grid">
-        {activeTab === 'profile' && (
-          <>
-            {/* Personal Details */}
-            <motion.div variants={item} className="bento-card col-span-12">
+        {/* Personal Details */}
+        <motion.div variants={item} className="bento-card col-span-4">
           <h3 className="text-h3 mb-4">Personal Details</h3>
           <div className="flex" style={{ flexDirection: 'column', gap: '1.25rem' }}>
             
@@ -393,15 +363,9 @@ export const StudentProfile: React.FC = () => {
             )}
           </div>
         </motion.div>
-        {/* End of Personal Details for profile tab. We DO NOT close the fragment here because History Timeline is also in this tab! */}
 
         {/* ── Clinical Telemetry & Radar Cockpit Card ── */}
-        {/* This block is only shown in the telemetry tab! */}
-        </>
-        )}
-        {activeTab === 'telemetry' && (
-        <>
-        <motion.div variants={item} className="bento-card col-span-12">
+        <motion.div variants={item} className="bento-card col-span-8">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.75rem' }}>
             <div>
               <h3 className="text-h3" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -533,59 +497,50 @@ export const StudentProfile: React.FC = () => {
                 })()}
               </div>
 
-            </div>
-          )}
-        </motion.div>
+              {/* Tension Alerts */}
+              {(() => {
+                const tensionWarnings: string[] = [];
+                if (telemetry.tensions) {
+                  if (Math.abs(telemetry.tensions.T_cognitive_emotional ?? 0) > 0.3) {
+                    tensionWarnings.push('High Cognitive / Emotional Tension Detected');
+                  }
+                  if (Math.abs(telemetry.tensions.T_social_home ?? 0) > 0.3) {
+                    tensionWarnings.push('High Social / Home Dynamics Tension Detected');
+                  }
+                  if (Math.abs(telemetry.tensions.T_internal_external ?? 0) > 0.3) {
+                    tensionWarnings.push('High Internal / External Tension Detected');
+                  }
+                }
 
-        {/* Tension Alerts (Full-Width Card in Telemetry Tab) */}
-        {telemetry && telemetry.data_completeness > 0 && (() => {
-          const tensionWarnings: string[] = [];
-          if (telemetry.tensions) {
-            if (Math.abs(telemetry.tensions.T_cognitive_emotional ?? 0) > 0.3) {
-              tensionWarnings.push('High Cognitive / Emotional Tension Detected');
-            }
-            if (Math.abs(telemetry.tensions.T_social_home ?? 0) > 0.3) {
-              tensionWarnings.push('High Social / Home Dynamics Tension Detected');
-            }
-            if (Math.abs(telemetry.tensions.T_internal_external ?? 0) > 0.3) {
-              tensionWarnings.push('High Internal / External Tension Detected');
-            }
-          }
+                if (tensionWarnings.length === 0) return null;
 
-          if (tensionWarnings.length === 0) return null;
-
-          return (
-            <motion.div variants={item} className="bento-card col-span-12">
-              <h3 className="text-h3 mb-4 flex items-center gap-2" style={{ color: '#f59e0b' }}>
-                <AlertTriangle size={18} /> Cross-Domain Tension Warnings
-              </h3>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                {tensionWarnings.map((warn, idx) => (
-                  <div key={idx} style={{
-                    padding: '1rem 1.25rem',
+                return (
+                  <div style={{
+                    marginTop: '0.875rem',
+                    padding: '0.75rem 1rem',
                     borderRadius: 'var(--radius-md)',
                     backgroundColor: 'rgba(245, 158, 11, 0.12)',
                     border: '1px solid rgba(245, 158, 11, 0.3)',
                     color: '#f59e0b',
-                    fontSize: '0.875rem',
+                    fontSize: '0.8125rem',
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '0.75rem'
+                    gap: '0.6rem'
                   }}>
-                    <AlertTriangle size={20} style={{ flexShrink: 0 }} />
-                    <span style={{ fontWeight: 600 }}>{warn}</span>
+                    <AlertTriangle size={16} style={{ flexShrink: 0 }} />
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                      {tensionWarnings.map((warn, idx) => (
+                        <span key={idx} style={{ fontWeight: 600 }}>⚠️ {warn}</span>
+                      ))}
+                    </div>
                   </div>
-                ))}
-              </div>
-            </motion.div>
-          );
-        })()}
-        {/* End of Telemetry tab */}
-        </>
-        )}
-        
+                );
+              })()}
+            </div>
+          )}
+        </motion.div>
+
         {/* History Timeline */}
-        {activeTab === 'profile' && (
         <motion.div variants={item} className="bento-card col-span-12">
           <div className="flex justify-between items-center mb-6 mobile-stack mobile-stack-start" style={{ gap: '1rem' }}>
             <h3 className="text-h3">Counseling History</h3>
@@ -748,7 +703,6 @@ export const StudentProfile: React.FC = () => {
             </AnimatePresence>
           </div>
         </motion.div>
-        )}
       </div>
 
       {/* ── Tag Assignment Modal ── */}
