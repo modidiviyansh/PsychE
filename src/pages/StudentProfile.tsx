@@ -639,10 +639,12 @@ export const StudentProfile: React.FC = () => {
                             {item.assessment_data.map((a: any, i: number) => {
                               const rawScoreValues = Object.values(a.responses) as number[];
                               const totalScore = rawScoreValues.reduce((sum, val) => sum + (val || 0), 0);
-                              const maxPossible = a.type === 'COMPE' ? Object.keys(a.responses).length * 4 : 'N/A';
+                              const totalQs = a.total_questions || 8;
+                              const maxPossible = (a.type === 'COMPE' || a.type === 'MIX') ? totalQs * 4 : 'N/A';
+                              const percentage = maxPossible !== 'N/A' && maxPossible > 0 ? Math.round((totalScore / (maxPossible as number)) * 100) : null;
                               return (
                                 <span key={i} style={{ fontSize: '0.875rem', fontWeight: 500, color: '#10b981' }}>
-                                  {a.title}: {totalScore}{maxPossible !== 'N/A' ? `/${maxPossible}` : ''}
+                                  {a.title}: {percentage !== null ? `${percentage}%` : totalScore}
                                 </span>
                               );
                             })}

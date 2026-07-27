@@ -175,10 +175,10 @@ export const AddLog: React.FC = () => {
     masterLibrary.forEach(module => {
       let isMatch = false;
       const targetString = `${module.name || ''} ${module.description || ''}`.toLowerCase();
-      const keywords = module.smart_keywords || [];
+      const keywords = Array.isArray(module.smart_keywords) ? module.smart_keywords : [];
       
       for (const word of words) {
-        if (word.length > 2 && (targetString.includes(word) || keywords.some((kw: string) => kw.includes(word)))) {
+        if (word.length > 2 && (targetString.includes(word) || keywords.some((kw: string) => kw.toLowerCase().includes(word)))) {
           isMatch = true;
           break;
         }
@@ -187,11 +187,13 @@ export const AddLog: React.FC = () => {
       if (isMatch) {
         // Smart Engine Cooldown Check
         const isCoolingDown = pastAssessments.some(log => {
+          if (!log.assessment_data || !Array.isArray(log.assessment_data)) return false;
+          
           const taken = new Date(log.session_date);
           const diffDays = (now.getTime() - taken.getTime()) / (1000 * 3600 * 24);
           
           if (diffDays <= cooldownDays) {
-            return log.assessment_data.some((a: any) => a.assessment_id === module.id);
+            return log.assessment_data.some((a: any) => a.module_id === module.id);
           }
           return false;
         });

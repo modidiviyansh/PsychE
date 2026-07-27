@@ -137,13 +137,15 @@ export const ReportExport: React.FC = () => {
                         {log.assessment_data.map((a: any, i: number) => {
                           const rawScoreValues = Object.values(a.responses) as number[];
                           const totalScore = rawScoreValues.reduce((sum, val) => sum + (val || 0), 0);
-                          const maxPossible = a.type === 'COMPE' ? Object.keys(a.responses).length * 4 : 'N/A';
+                          const totalQs = a.total_questions || 8;
+                          const maxPossible = (a.type === 'COMPE' || a.type === 'MIX') ? totalQs * 4 : 'N/A';
+                          const percentage = maxPossible !== 'N/A' && maxPossible > 0 ? Math.round((totalScore / (maxPossible as number)) * 100) : null;
                           
                           return (
                             <div key={i} className="table-scroll" style={{ overflowX: 'auto', marginBottom: '1.5rem', backgroundColor: 'var(--color-surface)', borderRadius: 'var(--radius-md)', padding: '1rem', border: '1px solid var(--color-border)' }}>
                               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
                                 <strong style={{ fontSize: '1rem' }}>{a.title}</strong>
-                                <strong>Score: {totalScore}{maxPossible !== 'N/A' ? `/${maxPossible}` : ''}</strong>
+                                <strong>Score: {percentage !== null ? `${percentage}%` : totalScore}</strong>
                               </div>
                               
                               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>

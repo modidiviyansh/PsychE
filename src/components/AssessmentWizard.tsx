@@ -37,6 +37,17 @@ export const AssessmentWizard: React.FC<AssessmentWizardProps> = ({
   const [logId, setLogId] = useState<string | undefined>(existingLogId);
   const [isCompleted, setIsCompleted] = useState(false);
   
+  const logIdRef = useRef(logId);
+  const isCompletedRef = useRef(isCompleted);
+
+  useEffect(() => {
+    logIdRef.current = logId;
+  }, [logId]);
+
+  useEffect(() => {
+    isCompletedRef.current = isCompleted;
+  }, [isCompleted]);
+  
   // Dry Well - Add Fresh Question state
   const [dryWell, setDryWell] = useState(false);
   const [showAddQuestion, setShowAddQuestion] = useState(false);
@@ -63,8 +74,44 @@ export const AssessmentWizard: React.FC<AssessmentWizardProps> = ({
   const loadQuestions = async () => {
     setDryWell(false);
     
-    // 1. Fetch available questions via smart fetch engine
-    const questions = await fetchAssessmentQuestions(studentUuid, moduleId, 8);
+    let questions: AssessmentQuestion[] = [];
+
+    // 1. If resuming a draft, fetch the EXACT questions that were already drafted for this module
+    if (existingLogId) {
+      const { data: existingResponses } = await supabase.from('PsychE_Responses').select('question_id, score_value').eq('log_id', existingLogId);
+      if (existingResponses && existingResponses.length > 0) {
+        const qIds = existingResponses.map((r: any) => r.question_id);
+        
+        let query = supabase
+          .from('PsychE_Questions')
+          .select(`
+            id, module_id, prompt_text, is_reverse_scored, custom_labels, is_active,
+            PsychE_Modules!inner ( name, type, is_locked )
+          `)
+          .in('id', qIds);
+          
+        if (moduleId) {
+          query = query.eq('module_id', moduleId);
+        }
+        
+        const { data: exactQs } = await query;
+        if (exactQs && exactQs.length > 0) {
+          questions = exactQs.map((q: any) => ({
+            id: q.id,
+            module_id: q.module_id,
+            module_name: q.PsychE_Modules.name,
+            prompt_text: q.prompt_text,
+            is_reverse_scored: q.is_reverse_scored,
+            custom_labels: q.custom_labels || { "1": "1", "2": "2", "3": "3", "4": "4" },
+          }));
+        }
+      }
+    }
+
+    // 2. If no questions loaded from draft, fetch fresh ones via smart fetch engine
+    if (questions.length === 0) {
+      questions = await fetchAssessmentQuestions(studentUuid, moduleId, 8);
+    }
     
     if (questions.length === 0) {
       setDryWell(true);
@@ -113,37 +160,59 @@ export const AssessmentWizard: React.FC<AssessmentWizardProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [studentUuid, moduleId, existingLogId]);
 
-  // Draft Auto-Save on hard unmount
-  useEffect(() => {
-    return () => {
-      if (!isCompleted && latestQuestions.current.length > 0) {
-        // Use refs to avoid stale state and dependency loops
-        saveDraft(latestAnswers.current, latestQuestions.current);
-      }
-    };
-  }, [isCompleted]); // Empty-ish dependency array so it only runs on unmount
+
 
   const saveDraft = async (answersToSave = answers, questionsToSave = sampledQuestions) => {
-    if (onEmbeddedComplete) return;
     if (Object.keys(answersToSave).length === 0) return;
     if (isSavingDraftRef.current) return;
     
     isSavingDraftRef.current = true;
     
     try {
+      let finalLogId = logIdRef.current;
+      let existingAssessmentData: any[] = [];
+      
+      if (finalLogId) {
+        const { data: existingLog } = await supabase.from('PsychE_Counseling_Logs').select('assessment_data').eq('id', finalLogId).single();
+        if (existingLog && Array.isArray(existingLog.assessment_data)) {
+          existingAssessmentData = existingLog.assessment_data;
+        }
+      }
+
       const logTitle = moduleId ? moduleTitle : `Daily Mix Assessment - ${new Date().toLocaleDateString()}`;
       
-      const logData = {
-        student_uuid: studentUuid,
-        counselor_name: counselorName,
-        session_date: new Date().toISOString(),
-        reason: logTitle,
-        student_response: isQuickAssessment ? 'System: Quick Assessment administered on profile.' : 'Draft Assessment',
-        interaction_type: 'Session',
-        session_status: 'Draft'
+      const packagedModule = {
+        title: logTitle,
+        type: moduleId ? 'COMPE' : 'MIX',
+        module_id: moduleId || 'daily_mix',
+        total_questions: questionsToSave.length,
+        responses: Object.fromEntries(
+          Object.entries(answersToSave).map(([qid, val]) => {
+            const q = questionsToSave.find(x => x.id === qid);
+            return [q ? q.prompt_text : qid, val];
+          })
+        )
       };
 
-      let finalLogId = logId;
+      const newAssessmentData = [
+        ...existingAssessmentData.filter((a: any) => a.module_id !== packagedModule.module_id),
+        packagedModule
+      ];
+
+      const logData: any = {
+        assessment_data: newAssessmentData
+      };
+
+      if (!finalLogId) {
+        logData.student_uuid = studentUuid;
+        logData.counselor_name = counselorName;
+        logData.session_date = new Date().toISOString();
+        logData.reason = logTitle;
+        logData.student_response = isQuickAssessment ? 'System: Quick Assessment administered on profile.' : 'Draft Assessment';
+        logData.interaction_type = 'Session';
+        logData.session_status = 'Draft';
+      }
+
       if (finalLogId) {
         await supabase.from('PsychE_Counseling_Logs').update(logData).eq('id', finalLogId);
       } else {
@@ -151,6 +220,7 @@ export const AssessmentWizard: React.FC<AssessmentWizardProps> = ({
         if (data) {
           finalLogId = data.id;
           setLogId(data.id);
+          logIdRef.current = data.id;
         }
       }
       
@@ -187,19 +257,69 @@ export const AssessmentWizard: React.FC<AssessmentWizardProps> = ({
     if (sampledQuestions.length === 0) return;
     setSaving(true);
     setIsCompleted(true);
+    isCompletedRef.current = true;
     
     try {
+      let finalLogId = logIdRef.current || existingLogId;
+      let existingAssessmentData: any[] = [];
+      
+      if (finalLogId) {
+        const { data: existingLog } = await supabase.from('PsychE_Counseling_Logs').select('assessment_data').eq('id', finalLogId).single();
+        if (existingLog && Array.isArray(existingLog.assessment_data)) {
+          existingAssessmentData = existingLog.assessment_data;
+        }
+      }
+
       const logTitle = moduleId ? moduleTitle : `Daily Mix Assessment - ${new Date().toLocaleDateString()}`;
       
-      const logData = {
-        student_uuid: studentUuid,
-        counselor_name: counselorName,
-        session_date: new Date().toISOString(),
-        reason: logTitle,
-        student_response: isQuickAssessment ? 'System: Quick Assessment administered on profile.' : (onEmbeddedComplete ? 'Draft Assessment' : 'Completed Assessment'),
-        interaction_type: 'Session',
-        session_status: onEmbeddedComplete ? 'Draft' : 'Completed'
+      const packagedModule = {
+        title: logTitle,
+        type: moduleId ? 'COMPE' : 'MIX',
+        module_id: moduleId || 'daily_mix',
+        total_questions: sampledQuestions.length,
+        responses: Object.fromEntries(
+          Object.entries(answers).map(([qid, val]) => {
+            const q = sampledQuestions.find(x => x.id === qid);
+            return [q ? q.prompt_text : qid, val];
+          })
+        )
       };
+
+      const newAssessmentData = [
+        ...existingAssessmentData.filter((a: any) => a.module_id !== packagedModule.module_id),
+        packagedModule
+      ];
+
+      const logData: any = {
+        assessment_data: newAssessmentData
+      };
+
+      if (!finalLogId) {
+        logData.student_uuid = studentUuid;
+        logData.counselor_name = counselorName;
+        logData.session_date = new Date().toISOString();
+        logData.reason = logTitle;
+        logData.student_response = isQuickAssessment ? 'System: Quick Assessment administered on profile.' : (onEmbeddedComplete ? 'Draft Assessment' : 'Completed Assessment');
+        logData.interaction_type = 'Session';
+        logData.session_status = onEmbeddedComplete ? 'Draft' : 'Completed';
+      } else if (isQuickAssessment && !onEmbeddedComplete) {
+        logData.session_status = 'Completed';
+      }
+
+      if (finalLogId) {
+        const { error: updateError } = await supabase.from('PsychE_Counseling_Logs').update(logData).eq('id', finalLogId);
+        if (updateError) console.error("Error updating log:", updateError);
+      } else {
+        const { data, error: insertError } = await supabase.from('PsychE_Counseling_Logs').insert([logData]).select().single();
+        if (insertError) console.error("Error inserting log:", insertError);
+        if (data) {
+          finalLogId = data.id;
+          setLogId(finalLogId);
+          logIdRef.current = finalLogId;
+        }
+      }
+
+      if (!finalLogId) throw new Error("Could not resolve finalLogId");
 
       // Strict Math Guard on Resumed Drafts:
       // We purely compute the payloadScore from the current rawUI value in `answers` state
@@ -212,35 +332,25 @@ export const AssessmentWizard: React.FC<AssessmentWizardProps> = ({
         }
         
         return {
+          log_id: finalLogId,
           question_id: questionId,
           score_value: payloadScore
         };
       });
 
-      let finalLogId = logId;
-
-      if (finalLogId) {
-        await supabase.from('PsychE_Counseling_Logs').update(logData).eq('id', finalLogId);
-      } else {
-        const { data } = await supabase.from('PsychE_Counseling_Logs').insert([logData]).select().single();
-        if (data) {
-          finalLogId = data.id;
-          setLogId(finalLogId);
-        }
-      }
-
-      if (!finalLogId) throw new Error("Could not create log");
-
-      const finalResponsesToInsert = responsesToInsert.map(r => ({
-        ...r,
-        log_id: finalLogId
-      }));
-
-      if (finalResponsesToInsert.length > 0) {
+      if (responsesToInsert.length > 0) {
         // Strict Delete only for the questions being overwritten, preserving other assessments on same log
-        const questionIds = finalResponsesToInsert.map(r => r.question_id);
-        await supabase.from('PsychE_Responses').delete().eq('log_id', finalLogId).in('question_id', questionIds);
-        await supabase.from('PsychE_Responses').insert(finalResponsesToInsert);
+        const questionIds = responsesToInsert.map(r => r.question_id);
+        const { error: delError } = await supabase.from('PsychE_Responses').delete().eq('log_id', finalLogId).in('question_id', questionIds);
+        if (delError) console.error("Error deleting old responses:", delError);
+        
+        const { error: insError } = await supabase.from('PsychE_Responses').insert(responsesToInsert);
+        if (insError) console.error("Error inserting responses:", insError);
+        
+        const { error: telemetryError } = await supabase.rpc('calculate_student_telemetry', { 
+          target_student_uuid: studentUuid 
+        });
+        if (telemetryError) console.warn('Telemetry engine failed:', telemetryError.message);
       }
 
       if (onEmbeddedComplete) {
