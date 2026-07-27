@@ -6,6 +6,8 @@ import { ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, PolarRadius
 import { supabase } from '../lib/supabase';
 import { AssessmentWizard } from '../components/AssessmentWizard';
 import type { TelemetryPayload } from '../types';
+import type { EngineStatus } from '../analytics/ColdStart';
+import { calculateConfidenceMultiplier } from '../analytics/ColdStart';
 
 const container = {
   hidden: { opacity: 0 },
@@ -47,6 +49,7 @@ export const StudentProfile: React.FC = () => {
 
   // Telemetry State
   const [telemetry, setTelemetry] = useState<TelemetryPayload | null>(null);
+  const [engineStatus, setEngineStatus] = useState<EngineStatus | null>(null);
   const [activeTab, setActiveTab] = useState<'profile' | 'telemetry'>('profile');
 
   // Date Range Report States
@@ -92,6 +95,12 @@ export const StudentProfile: React.FC = () => {
 
         if (telemetryRow?.metrics_payload) {
           setTelemetry(telemetryRow.metrics_payload as TelemetryPayload);
+        }
+
+        const { data: engineStatusStr, error: engineError } = await supabase
+          .rpc('psyche_get_engine_status', { p_student_uuid: studentData.id });
+        if (!engineError && engineStatusStr) {
+          setEngineStatus(engineStatusStr as EngineStatus);
         }
 
         // Fetch Tags
@@ -432,109 +441,136 @@ export const StudentProfile: React.FC = () => {
             )}
           </div>
 
-          {(!telemetry || telemetry.data_completeness === 0 || telemetry.session_count === 0) ? (
-            /* Condition A: Cold Start Empty State */
-            <div style={{
-              padding: '2.5rem 1.5rem',
-              textAlign: 'center',
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '0.75rem',
-              backgroundColor: 'rgba(0, 0, 0, 0.2)',
-              borderRadius: 'var(--radius-md)',
-              border: '1px dashed var(--color-border)'
-            }}>
-              <div style={{
-                width: 48,
-                height: 48,
-                borderRadius: '50%',
-                backgroundColor: 'rgba(255, 255, 255, 0.05)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: 'var(--color-text-muted)'
-              }}>
-                <Activity size={24} />
-              </div>
-              <div>
-                <p style={{ fontWeight: 600, fontSize: '0.925rem', color: 'var(--color-text)', marginBottom: '0.25rem' }}>
-                  Clinical profile is currently gathering data for the new term
-                </p>
-                <p style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>
-                  No assessment telemetry available in the 90-day lookback window.
-                </p>
-              </div>
-              <button
-                className="btn btn-primary"
-                style={{ marginTop: '0.5rem', padding: '0.5rem 1.25rem', fontSize: '0.8125rem' }}
-                onClick={() => navigate(`/add-log?student=${student.id}`)}
-              >
-                + Schedule Baseline Assessment
-              </button>
-            </div>
-          ) : (
-            /* Condition B: Active Radar Chart & Tensions */
-            <div>
-              <div style={{ height: 260, width: '100%', position: 'relative' }}>
-                {(() => {
-                  const domainLabelMap: Record<string, string> = {
-                    BHV: 'Behavioural (BHV)',
-                    SOC: 'Social (SOC)',
-                    COG: 'Cognitive (COG)',
-                    EMH: 'Emotional (EMH)',
-                    FAM: 'Family (FAM)',
-                    CAR: 'Career (CAR)',
-                    SEL: 'Self & Identity (SEL)'
-                  };
+          {(() => {
+            if (engineStatus === 'cold_start' || !engineStatus) {
+              return (
+                <div style={{
+                  padding: '2.5rem 1.5rem',
+                  textAlign: 'center',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '0.75rem',
+                  backgroundColor: 'rgba(0, 0, 0, 0.2)',
+                  borderRadius: 'var(--radius-md)',
+                  border: '1px dashed var(--color-border)'
+                }}>
+                  <div style={{ width: 48, height: 48, borderRadius: '50%', backgroundColor: 'rgba(255, 255, 255, 0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-text-muted)' }}>
+                    <Activity size={24} />
+                  </div>
+                  <div>
+                    <p style={{ fontWeight: 600, fontSize: '0.925rem', color: 'var(--color-text)', marginBottom: '0.25rem' }}>
+                      No assessments yet. Schedule first session to begin tracking.
+                    </p>
+                  </div>
+                  <button
+                    className="btn btn-primary"
+                    style={{ marginTop: '0.5rem', padding: '0.5rem 1.25rem', fontSize: '0.8125rem' }}
+                    onClick={() => navigate(`/add-log?student=${student.id}`)}
+                  >
+                    + Schedule Baseline Assessment
+                  </button>
+                </div>
+              );
+            }
 
-                  const radarData = Object.entries(telemetry.domain_scores || {}).map(([code, val]) => ({
-                    domain: domainLabelMap[code] || code,
-                    score: val !== null ? Math.round((val as number) * 100) : 0,
-                    fullMark: 100,
-                  }));
+            if (engineStatus === 'assessment_only') {
+              return (
+                <div style={{
+                  padding: '2.5rem 1.5rem',
+                  textAlign: 'center',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '0.75rem',
+                  backgroundColor: 'rgba(0, 0, 0, 0.2)',
+                  borderRadius: 'var(--radius-md)',
+                  border: '1px dashed var(--color-border)'
+                }}>
+                  <div style={{ width: 48, height: 48, borderRadius: '50%', backgroundColor: 'rgba(255, 255, 255, 0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-text-muted)' }}>
+                    <Activity size={24} />
+                  </div>
+                  <div>
+                    <p style={{ fontWeight: 600, fontSize: '0.925rem', color: 'var(--color-text)', marginBottom: '0.25rem' }}>
+                      No formal assessment completed — scores unavailable.
+                    </p>
+                  </div>
+                </div>
+              );
+            }
 
-                  return (
-                    <ResponsiveContainer width="100%" height="100%">
-                      <RadarChart cx="50%" cy="50%" outerRadius="75%" data={radarData}>
-                        <PolarGrid stroke="rgba(255, 255, 255, 0.12)" />
-                        <PolarAngleAxis
-                          dataKey="domain"
-                          stroke="var(--color-text-muted)"
-                          tick={{ fill: 'var(--color-text-muted)', fontSize: 11, fontWeight: 500 }}
-                        />
-                        <PolarRadiusAxis
-                          angle={30}
-                          domain={[0, 100]}
-                          stroke="rgba(255, 255, 255, 0.15)"
-                          tick={{ fontSize: 9, fill: 'var(--color-text-muted)' }}
-                        />
-                        <Radar
-                          name="Domain Score (%)"
-                          dataKey="score"
-                          stroke="#818cf8"
-                          fill="#6366f1"
-                          fillOpacity={0.35}
-                        />
-                        <Tooltip
-                          contentStyle={{
-                            backgroundColor: '#181b21',
-                            borderColor: 'rgba(255,255,255,0.15)',
-                            borderRadius: '8px',
-                            color: '#fff',
-                            fontSize: '12px'
-                          }}
-                          formatter={(value: any) => [`${value}%`, 'Score']}
-                        />
-                      </RadarChart>
-                    </ResponsiveContainer>
-                  );
-                })()}
+            const isWarming = engineStatus === 'warming';
+            const isStale = engineStatus === 'stale';
+
+            let confidenceMultiplier = 1;
+            if (isWarming) {
+              const completedLogs = logs.filter(l => l.session_status === 'Completed');
+              const completedSessionsCount = completedLogs.length;
+              let daysSinceFirst = 0;
+              if (completedLogs.length > 0) {
+                const firstLogDate = new Date(completedLogs[completedLogs.length - 1].session_date);
+                daysSinceFirst = Math.max(0, Math.floor((Date.now() - firstLogDate.getTime()) / (1000 * 3600 * 24)));
+              }
+              confidenceMultiplier = calculateConfidenceMultiplier(daysSinceFirst, completedSessionsCount);
+            }
+
+            const domainLabelMap: Record<string, string> = {
+              BHV: 'Behavioural (BHV)',
+              SOC: 'Social (SOC)',
+              COG: 'Cognitive (COG)',
+              EMH: 'Emotional (EMH)',
+              FAM: 'Family (FAM)',
+              CAR: 'Career (CAR)',
+              SEL: 'Self & Identity (SEL)'
+            };
+
+            const radarData = Object.entries(telemetry?.domain_scores || {}).map(([code, val]) => ({
+              domain: domainLabelMap[code] || code,
+              score: val !== null ? Math.round((val as number) * 100) : 0,
+              fullMark: 100,
+              isEmpty: val === null || val === 0
+            }));
+
+            const CustomTick = ({ payload, x, y, textAnchor, stroke, radius }: any) => {
+              const dataPoint = radarData.find(d => d.domain === payload.value);
+              const isGrey = isWarming && dataPoint?.isEmpty;
+              return (
+                <text radius={radius} stroke={stroke} x={x} y={y} className="recharts-text recharts-polar-angle-axis-tick-value" textAnchor={textAnchor}>
+                  <tspan x={x} dy="0em" fill={isGrey ? 'rgba(255,255,255,0.2)' : 'var(--color-text-muted)'} fontSize={11} fontWeight={500}>{payload.value}</tspan>
+                </text>
+              );
+            };
+
+            return (
+              <div style={{ position: 'relative', width: '100%' }}>
+                {isStale && (
+                  <div style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', border: '1px solid #ef4444', color: '#ef4444', padding: '0.75rem 1rem', borderRadius: 'var(--radius-md)', marginBottom: '1rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <AlertTriangle size={18} /> Data is expired (90+ days old) — schedule a re-assessment.
+                  </div>
+                )}
+                
+                {isWarming && (
+                  <div style={{ position: 'absolute', top: -10, right: 0, zIndex: 10, backgroundColor: 'rgba(245, 158, 11, 0.15)', border: '1px solid rgba(245, 158, 11, 0.3)', color: '#f59e0b', padding: '0.25rem 0.75rem', borderRadius: 'var(--radius-full)', fontSize: '0.75rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    <Activity size={14} /> Building profile — {Math.round(confidenceMultiplier * 100)}% Confidence
+                  </div>
+                )}
+                
+                <div style={{ height: 260, width: '100%', position: 'relative' }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <RadarChart cx="50%" cy="50%" outerRadius="75%" data={radarData}>
+                      <PolarGrid stroke="rgba(255, 255, 255, 0.12)" />
+                      <PolarAngleAxis dataKey="domain" tick={<CustomTick />} />
+                      <PolarRadiusAxis angle={30} domain={[0, 100]} stroke="rgba(255, 255, 255, 0.15)" tick={{ fontSize: 9, fill: 'var(--color-text-muted)' }} />
+                      <Radar name="Domain Score (%)" dataKey="score" stroke="#818cf8" fill="#6366f1" fillOpacity={0.35} />
+                      <Tooltip contentStyle={{ backgroundColor: '#181b21', borderColor: 'rgba(255,255,255,0.15)', borderRadius: '8px', color: '#fff', fontSize: '12px' }} formatter={(value: any) => [`${value}%`, 'Score']} />
+                    </RadarChart>
+                  </ResponsiveContainer>
+                </div>
               </div>
-
-            </div>
-          )}
+            );
+          })()}
         </motion.div>
 
         {/* Tension Alerts (Full-Width Card in Telemetry Tab) */}
