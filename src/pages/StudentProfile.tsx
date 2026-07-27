@@ -636,7 +636,7 @@ export const StudentProfile: React.FC = () => {
                         {/* Collapsed Assessment View */}
                         {!isDraft && hasAssessments && !isExpanded && (
                           <div style={{ backgroundColor: 'rgba(16, 185, 129, 0.05)', padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)', border: '1px solid rgba(16, 185, 129, 0.2)', display: 'flex', flexWrap: 'wrap', gap: '1rem' }}>
-                            {item.assessment_data.map((a: any, i: number) => {
+                            {(item.assessment_data as any[]).map((a: any, i: number) => {
                               const rawScoreValues = Object.values(a.responses) as number[];
                               const totalScore = rawScoreValues.reduce((sum, val) => sum + (val || 0), 0);
                               const totalQs = a.total_questions || 8;
@@ -667,7 +667,7 @@ export const StudentProfile: React.FC = () => {
                             {hasAssessments && (
                               <div className="mb-4">
                                 <p className="text-muted" style={{ fontSize: '0.75rem', textTransform: 'uppercase', marginBottom: '0.5rem', letterSpacing: '0.05em' }}>Full Assessment Receipt</p>
-                                {item.assessment_data.map((a: any, i: number) => (
+                                {(item.assessment_data as any[]).map((a: any, i: number) => (
                                   <div key={i} style={{ backgroundColor: 'rgba(0,0,0,0.1)', padding: '1rem', borderRadius: 'var(--radius-sm)', marginBottom: '0.5rem' }}>
                                     <h5 style={{ fontSize: '0.875rem', color: 'var(--color-primary)', marginBottom: '0.75rem' }}>{a.title}</h5>
                                     {Object.entries(a.responses).map(([q, ans]: any, j) => (
