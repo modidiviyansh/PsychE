@@ -340,7 +340,7 @@ export const StudentProfile: React.FC = () => {
                   <div key={cat}>
                     <p style={{ fontSize: '0.625rem', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--color-text-muted)', marginBottom: '0.4rem' }}>{cat}</p>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
-                      {catTags.map((tag: any) => (
+                      {(catTags as any[]).map((tag: any) => (
                         <span
                           key={tag.id}
                           style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', padding: '0.2rem 0.55rem', fontSize: '0.71875rem', fontWeight: 600, borderRadius: 'var(--radius-full)', backgroundColor: `${tag.color_hex}18`, color: tag.color_hex, border: `1px solid ${tag.color_hex}30` }}
