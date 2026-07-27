@@ -342,6 +342,15 @@ export const KanbanBoard: React.FC = () => {
 
   const handleRescheduleConfirm = async (newDate: string) => {
     if (!rescheduleTarget) return;
+
+    const selectedDate = new Date(newDate);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    if (selectedDate < today) {
+      alert("You cannot reschedule a session to a past date.");
+      return;
+    }
     setLoading(true);
     try {
       const { error } = await supabase.from('PsychE_Counseling_Logs').update({ scheduled_date: newDate }).eq('id', rescheduleTarget.id);

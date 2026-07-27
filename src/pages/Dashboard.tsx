@@ -343,6 +343,15 @@ export const Dashboard: React.FC = () => {
       return;
     }
 
+    const selectedDate = new Date(newDate);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    if (selectedDate < today) {
+      alert("You cannot reschedule a session to a past date.");
+      return;
+    }
+
     setLoading(true);
     try {
       const { error } = await supabase.from('PsychE_Counseling_Logs').update({ scheduled_date: newDate }).eq('id', logId);
@@ -402,10 +411,7 @@ export const Dashboard: React.FC = () => {
               whileTap={{ scale: 0.95 }}
               className="btn btn-secondary"
               style={{ padding: '0.75rem 1.5rem', fontSize: '1rem' }}
-              onClick={() => {
-                const searchInput = document.querySelector('input[type="text"]') as HTMLInputElement;
-                if (searchInput) searchInput.focus();
-              }}
+              onClick={() => navigate('/directory')}
             >
               <Search size={20} />
               Find Student
@@ -644,6 +650,7 @@ export const Dashboard: React.FC = () => {
                         className="input"
                         style={{ flex: 1, padding: '0.375rem 0.625rem', fontSize: '0.875rem' }}
                         value={newDate}
+                        min={new Date().toISOString().split('T')[0]}
                         onChange={(e) => setNewDate(e.target.value)}
                       />
                       <button onClick={(e) => handleReschedule(e, fu.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#4ade80', display: 'flex', padding: '0.375rem' }}>
