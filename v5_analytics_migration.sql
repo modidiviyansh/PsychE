@@ -56,14 +56,109 @@ BEGIN
 END;
 $$;
 
--- Phase 1: Nightly Batch Placeholder
+-- Phase 2: Add Storage Columns to Telemetry
+ALTER TABLE "PsychE_Student_Telemetry"
+ADD COLUMN IF NOT EXISTS engine_status TEXT,
+ADD COLUMN IF NOT EXISTS confidence_multiplier NUMERIC,
+ADD COLUMN IF NOT EXISTS eti_score NUMERIC,
+ADD COLUMN IF NOT EXISTS eti_data JSONB;
+
+-- Phase 2: The ETI Calculator Function
+CREATE OR REPLACE FUNCTION psyche_calculate_eti(
+  p_student_uuid UUID,
+  p_window_days INTEGER DEFAULT 30
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  v_completed INTEGER;
+  v_no_show INTEGER;
+  v_pending INTEGER;
+  v_total_logs INTEGER;
+  v_last_completed TIMESTAMPTZ;
+  v_days_since NUMERIC;
+  v_A NUMERIC; 
+  v_F NUMERIC; 
+  v_R NUMERIC;
+  v_eti NUMERIC;
+  v_avoidance NUMERIC;
+BEGIN
+  SELECT
+    COUNT(*) FILTER (WHERE session_status = 'Completed'),
+    COUNT(*) FILTER (WHERE session_status = 'No_Show'),
+    COUNT(*) FILTER (WHERE follow_up_status = 'Pending'),
+    COUNT(*),
+    MAX(session_date) FILTER (WHERE session_status = 'Completed')
+  INTO v_completed, v_no_show, v_pending, v_total_logs, v_last_completed
+  FROM "PsychE_Counseling_Logs"
+  WHERE student_uuid = p_student_uuid
+  AND session_date >= NOW() - (p_window_days * INTERVAL '1 day');
+
+  IF v_total_logs = 0 THEN
+    RETURN jsonb_build_object('eti', NULL, 'avoidance_flag', false, 'reason', 'no_activity');
+  END IF;
+
+  v_A := CASE WHEN (v_completed + v_no_show) > 0 THEN v_completed::NUMERIC / (v_completed + v_no_show) ELSE 0 END;
+  v_F := CASE WHEN v_total_logs > 0 THEN 1 - (v_pending::NUMERIC / v_total_logs) ELSE 1 END;
+  
+  v_days_since := COALESCE(EXTRACT(DAY FROM NOW() - v_last_completed), 999);
+  v_R := EXP(-v_days_since / 30.0);
+
+  v_eti := 100 * (0.50 * v_A + 0.30 * v_F + 0.20 * v_R);
+  v_avoidance := CASE WHEN (v_completed + v_no_show) > 0 THEN v_no_show::NUMERIC / (v_completed + v_no_show) ELSE 0 END;
+
+  RETURN jsonb_build_object(
+    'eti', ROUND(v_eti, 1),
+    'attendance_ratio', ROUND(v_A * 100, 0),
+    'follow_through_ratio', ROUND(v_F * 100, 0),
+    'recency_factor', ROUND(v_R * 100, 0),
+    'avoidance_flag', (v_avoidance >= 0.5),
+    'avoidance_ratio', ROUND(v_avoidance * 100, 0)
+  );
+END;
+$$;
+
+-- Phase 2: Finalize the Master Cron Job
 CREATE OR REPLACE FUNCTION psyche_run_daily_batch()
 RETURNS void
 LANGUAGE plpgsql
 AS $$
+DECLARE
+  student_record RECORD;
+  v_status TEXT;
+  v_eti_payload JSONB;
 BEGIN
-  -- Future metrics (ETI, SSI, School Aggregates) will be computed here.
-  -- Currently wakes up the database and logs execution.
-  PERFORM NOW();
+  -- Loop through all active students to account for ETI Recency Decay
+  FOR student_record IN SELECT id FROM "PsychE_Students" LOOP
+    
+    v_status := psyche_get_engine_status(student_record.id);
+    v_eti_payload := psyche_calculate_eti(student_record.id, 30);
+
+    IF EXISTS (
+      SELECT 1 FROM "PsychE_Student_Telemetry"
+      WHERE student_uuid = student_record.id
+        AND DATE(calculated_at AT TIME ZONE 'UTC') = CURRENT_DATE
+    ) THEN
+      UPDATE "PsychE_Student_Telemetry"
+      SET 
+        engine_status = v_status,
+        eti_score = (v_eti_payload->>'eti')::NUMERIC,
+        eti_data = v_eti_payload,
+        calculated_at = NOW()
+      WHERE student_uuid = student_record.id
+        AND DATE(calculated_at AT TIME ZONE 'UTC') = CURRENT_DATE;
+    ELSE
+      INSERT INTO "PsychE_Student_Telemetry" (student_uuid, engine_status, eti_score, eti_data, calculated_at)
+      VALUES (
+        student_record.id, 
+        v_status, 
+        (v_eti_payload->>'eti')::NUMERIC, 
+        v_eti_payload, 
+        NOW()
+      );
+    END IF;
+      
+  END LOOP;
 END;
 $$;

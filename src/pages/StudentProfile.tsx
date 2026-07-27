@@ -93,8 +93,15 @@ export const StudentProfile: React.FC = () => {
           .limit(1)
           .maybeSingle();
 
-        if (telemetryRow?.metrics_payload) {
-          setTelemetry(telemetryRow.metrics_payload as TelemetryPayload);
+        if (telemetryRow) {
+          const payload = {
+            ...(telemetryRow.metrics_payload || {}),
+            engine_status: telemetryRow.engine_status,
+            confidence_multiplier: telemetryRow.confidence_multiplier,
+            eti_score: telemetryRow.eti_score,
+            eti_data: telemetryRow.eti_data
+          };
+          setTelemetry(payload as TelemetryPayload);
         }
 
         const { data: engineStatusStr, error: engineError } = await supabase
@@ -572,6 +579,73 @@ export const StudentProfile: React.FC = () => {
             );
           })()}
         </motion.div>
+
+        {/* ETI Data Card */}
+        {(() => {
+          const etiData = typeof telemetry?.eti_data === 'string' 
+            ? JSON.parse(telemetry.eti_data) 
+            : telemetry?.eti_data || (telemetry as any)?.etiData;
+
+          const etiScore = etiData?.eti ?? telemetry?.eti_score;
+
+          if (engineStatus === 'cold_start' || etiScore == null) {
+            return null;
+          }
+
+          const avoidanceFlag = etiData?.avoidance_flag ?? etiData?.avoidanceFlag ?? false;
+          const attendanceRatio = etiData?.attendance_ratio ?? etiData?.attendanceRatio ?? 0;
+          const followThroughRatio = etiData?.follow_through_ratio ?? etiData?.followThroughRatio ?? 0;
+          const recencyFactor = etiData?.recency_factor ?? etiData?.recencyFactor ?? 0;
+          const avoidanceRatio = etiData?.avoidance_ratio ?? etiData?.avoidanceRatio ?? 0;
+
+          return (
+            <motion.div variants={item} className="bento-card col-span-12">
+              <h3 className="text-h3 mb-4 flex items-center gap-2">
+                <Activity size={18} className="text-primary" /> Engagement Trajectory Index (ETI)
+              </h3>
+              
+              {avoidanceFlag && (
+                <div style={{
+                  padding: '1rem 1.25rem',
+                  borderRadius: 'var(--radius-md)',
+                  backgroundColor: 'rgba(239, 68, 68, 0.12)',
+                  border: '1px solid rgba(239, 68, 68, 0.3)',
+                  color: '#ef4444',
+                  fontSize: '0.875rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.75rem',
+                  marginBottom: '1.25rem'
+                }}>
+                  <AlertTriangle size={20} style={{ flexShrink: 0 }} />
+                  <span style={{ fontWeight: 600 }}>Chronic No-Show Pattern ({avoidanceRatio}% avoidance)</span>
+                </div>
+              )}
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '1.25rem' }}>
+                <div style={{ backgroundColor: 'var(--color-bg)', padding: '1.25rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)' }}>
+                  <p className="text-muted" style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>Attendance Ratio</p>
+                  <p style={{ fontSize: '1.5rem', fontWeight: 700 }}>{attendanceRatio}%</p>
+                </div>
+                <div style={{ backgroundColor: 'var(--color-bg)', padding: '1.25rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)' }}>
+                  <p className="text-muted" style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>Follow-Through</p>
+                  <p style={{ fontSize: '1.5rem', fontWeight: 700 }}>{followThroughRatio}%</p>
+                </div>
+                <div style={{ backgroundColor: 'var(--color-bg)', padding: '1.25rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)' }}>
+                  <p className="text-muted" style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>Recency Factor</p>
+                  <p style={{ fontSize: '1.5rem', fontWeight: 700 }}>{recencyFactor}%</p>
+                </div>
+              </div>
+              
+              <div style={{ backgroundColor: 'rgba(99, 102, 241, 0.1)', padding: '1.5rem', borderRadius: 'var(--radius-md)', border: '1px solid rgba(99, 102, 241, 0.3)', textAlign: 'center' }}>
+                <p style={{ fontSize: '0.875rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: '#818cf8', marginBottom: '0.5rem' }}>Master ETI Score</p>
+                <p style={{ fontSize: '2.5rem', fontWeight: 700, color: 'var(--color-text)', lineHeight: 1 }}>
+                  {etiScore !== null ? etiScore : 'N/A'}<span style={{ fontSize: '1.25rem', color: 'var(--color-text-muted)', fontWeight: 500 }}> / 100</span>
+                </p>
+              </div>
+            </motion.div>
+          );
+        })()}
 
         {/* Tension Alerts (Full-Width Card in Telemetry Tab) */}
         {telemetry && telemetry.data_completeness > 0 && (() => {

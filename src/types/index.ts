@@ -204,6 +204,17 @@ export interface TelemetryPayload {
   domain_scores: DomainScores;
   tensions: TelemetryTensions;
   calculated_at?: string;
+  engine_status?: string;
+  confidence_multiplier?: number;
+  eti_score?: number;
+  eti_data?: {
+    eti: number | null;
+    attendance_ratio: number;
+    follow_through_ratio: number;
+    recency_factor: number;
+    avoidance_flag: boolean;
+    avoidance_ratio: number;
+  };
 }
 
 export interface StudentTelemetry {
