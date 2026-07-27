@@ -7,12 +7,19 @@ on:
   workflow_dispatch:
 
 jobs:
-  run-batch:
+  run-analytics:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Trigger Daily Analytics Batch via Supabase RPC
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Trigger Daily Batch
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
-          curl -X POST "${{ secrets.SUPABASE_URL }}/rest/v1/rpc/psyche_run_daily_batch" \
-            -H "apikey: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
-            -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
+          curl -X POST "$SUPABASE_URL/rest/v1/rpc/psyche_run_daily_batch" \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
             -H "Content-Type: application/json"

@@ -14,7 +14,6 @@
   "12": "2. Directory Structure & Ownership",
   "13": "package.json",
   "14": "assessmentEngine.ts",
-  "15": "GlobalTagManager.tsx",
   "16": "agent.md — PsychE Session Entry Point",
   "17": "graphify reference: extra exports and benchmark",
   "18": "webhook.js",
@@ -30,6 +29,5 @@
   "28": "extraction-spec.md",
   "29": "workflows/graphify.md",
   "30": "eslint.config.js",
-  "31": "vite.config.ts",
-  "32": "refactor.py"
+  "31": "vite.config.ts"
 }

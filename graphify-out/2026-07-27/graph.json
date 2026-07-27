@@ -785,28 +785,6 @@
       "norm_label": "vite"
     },
     {
-      "label": "refactor.py",
-      "file_type": "code",
-      "source_file": "refactor.py",
-      "source_location": "L1",
-      "_origin": "ast",
-      "id": "refactor",
-      "community": 32,
-      "community_name": "refactor.py",
-      "norm_label": "refactor.py"
-    },
-    {
-      "label": "main()",
-      "file_type": "code",
-      "source_file": "refactor.py",
-      "source_location": "L4",
-      "_origin": "ast",
-      "id": "refactor_main",
-      "community": 32,
-      "community_name": "refactor.py",
-      "norm_label": "main()"
-    },
-    {
       "label": "App.tsx",
       "file_type": "code",
       "source_file": "src/App.tsx",
@@ -829,47 +807,14 @@
       "norm_label": "app()"
     },
     {
-      "label": "ColdStart.ts",
-      "file_type": "code",
-      "source_file": "src/analytics/ColdStart.ts",
-      "source_location": "L1",
-      "_origin": "ast",
-      "id": "src_analytics_coldstart",
-      "community": 0,
-      "community_name": "App.tsx",
-      "norm_label": "coldstart.ts"
-    },
-    {
-      "label": "EngineStatus",
-      "file_type": "code",
-      "source_file": "src/analytics/ColdStart.ts",
-      "source_location": "L1",
-      "_origin": "ast",
-      "id": "src_analytics_coldstart_enginestatus",
-      "community": 0,
-      "community_name": "App.tsx",
-      "norm_label": "enginestatus"
-    },
-    {
-      "label": "calculateConfidenceMultiplier()",
-      "file_type": "code",
-      "source_file": "src/analytics/ColdStart.ts",
-      "source_location": "L3",
-      "_origin": "ast",
-      "id": "src_analytics_coldstart_calculateconfidencemultiplier",
-      "community": 0,
-      "community_name": "App.tsx",
-      "norm_label": "calculateconfidencemultiplier()"
-    },
-    {
       "label": "AssessmentWizard.tsx",
       "file_type": "code",
       "source_file": "src/components/AssessmentWizard.tsx",
       "source_location": "L1",
       "_origin": "ast",
       "id": "src_components_assessmentwizard",
-      "community": 0,
-      "community_name": "App.tsx",
+      "community": 14,
+      "community_name": "assessmentEngine.ts",
       "norm_label": "assessmentwizard.tsx"
     },
     {
@@ -879,8 +824,8 @@
       "source_location": "L8",
       "_origin": "ast",
       "id": "src_components_assessmentwizard_assessmentwizardprops",
-      "community": 0,
-      "community_name": "App.tsx",
+      "community": 14,
+      "community_name": "assessmentEngine.ts",
       "norm_label": "assessmentwizardprops"
     },
     {
@@ -890,8 +835,8 @@
       "source_location": "L21",
       "_origin": "ast",
       "id": "src_components_assessmentwizard_assessmentwizard",
-      "community": 0,
-      "community_name": "App.tsx",
+      "community": 14,
+      "community_name": "assessmentEngine.ts",
       "norm_label": "assessmentwizard()"
     },
     {
@@ -901,8 +846,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "src_components_globaltagmanager",
-      "community": 15,
-      "community_name": "GlobalTagManager.tsx",
+      "community": 2,
+      "community_name": "index.ts",
       "norm_label": "globaltagmanager.tsx"
     },
     {
@@ -912,8 +857,8 @@
       "source_location": "L11",
       "_origin": "ast",
       "id": "src_components_globaltagmanager_tag_categories",
-      "community": 15,
-      "community_name": "GlobalTagManager.tsx",
+      "community": 2,
+      "community_name": "index.ts",
       "norm_label": "tag_categories"
     },
     {
@@ -923,8 +868,8 @@
       "source_location": "L13",
       "_origin": "ast",
       "id": "src_components_globaltagmanager_categorypillclass",
-      "community": 15,
-      "community_name": "GlobalTagManager.tsx",
+      "community": 2,
+      "community_name": "index.ts",
       "norm_label": "categorypillclass()"
     },
     {
@@ -934,8 +879,8 @@
       "source_location": "L27",
       "_origin": "ast",
       "id": "src_components_globaltagmanager_editstate",
-      "community": 15,
-      "community_name": "GlobalTagManager.tsx",
+      "community": 2,
+      "community_name": "index.ts",
       "norm_label": "editstate"
     },
     {
@@ -945,8 +890,8 @@
       "source_location": "L34",
       "_origin": "ast",
       "id": "src_components_globaltagmanager_edit_empty",
-      "community": 15,
-      "community_name": "GlobalTagManager.tsx",
+      "community": 2,
+      "community_name": "index.ts",
       "norm_label": "edit_empty"
     },
     {
@@ -956,8 +901,8 @@
       "source_location": "L36",
       "_origin": "ast",
       "id": "src_components_globaltagmanager_newtagstate",
-      "community": 15,
-      "community_name": "GlobalTagManager.tsx",
+      "community": 2,
+      "community_name": "index.ts",
       "norm_label": "newtagstate"
     },
     {
@@ -967,8 +912,8 @@
       "source_location": "L42",
       "_origin": "ast",
       "id": "src_components_globaltagmanager_new_empty",
-      "community": 15,
-      "community_name": "GlobalTagManager.tsx",
+      "community": 2,
+      "community_name": "index.ts",
       "norm_label": "new_empty"
     },
     {
@@ -978,8 +923,8 @@
       "source_location": "L48",
       "_origin": "ast",
       "id": "src_components_globaltagmanager_globaltagmanager",
-      "community": 15,
-      "community_name": "GlobalTagManager.tsx",
+      "community": 2,
+      "community_name": "index.ts",
       "norm_label": "globaltagmanager()"
     },
     {
@@ -1264,8 +1209,8 @@
       "source_location": "L81",
       "_origin": "ast",
       "id": "src_lib_assessmentengine_fetchassessmentquestions",
-      "community": 0,
-      "community_name": "App.tsx",
+      "community": 14,
+      "community_name": "assessmentEngine.ts",
       "norm_label": "fetchassessmentquestions()"
     },
     {
@@ -1286,8 +1231,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "src_lib_capacity",
-      "community": 0,
-      "community_name": "App.tsx",
+      "community": 11,
+      "community_name": "capacity.ts",
       "norm_label": "capacity.ts"
     },
     {
@@ -1297,8 +1242,8 @@
       "source_location": "L17",
       "_origin": "ast",
       "id": "src_lib_capacity_tolocaldatestr",
-      "community": 0,
-      "community_name": "App.tsx",
+      "community": 11,
+      "community_name": "capacity.ts",
       "norm_label": "tolocaldatestr()"
     },
     {
@@ -1308,8 +1253,8 @@
       "source_location": "L29",
       "_origin": "ast",
       "id": "src_lib_capacity_getdailycapacity",
-      "community": 0,
-      "community_name": "App.tsx",
+      "community": 11,
+      "community_name": "capacity.ts",
       "norm_label": "getdailycapacity()"
     },
     {
@@ -1319,8 +1264,8 @@
       "source_location": "L49",
       "_origin": "ast",
       "id": "src_lib_capacity_getdateload",
-      "community": 0,
-      "community_name": "App.tsx",
+      "community": 11,
+      "community_name": "capacity.ts",
       "norm_label": "getdateload()"
     },
     {
@@ -1330,8 +1275,8 @@
       "source_location": "L68",
       "_origin": "ast",
       "id": "src_lib_capacity_getdatestatus",
-      "community": 0,
-      "community_name": "App.tsx",
+      "community": 11,
+      "community_name": "capacity.ts",
       "norm_label": "getdatestatus()"
     },
     {
@@ -1341,8 +1286,8 @@
       "source_location": "L85",
       "_origin": "ast",
       "id": "src_lib_capacity_getcapacitymap",
-      "community": 0,
-      "community_name": "App.tsx",
+      "community": 11,
+      "community_name": "capacity.ts",
       "norm_label": "getcapacitymap()"
     },
     {
@@ -1352,8 +1297,8 @@
       "source_location": "L131",
       "_origin": "ast",
       "id": "src_lib_capacity_getavailablecapacityfordaterange",
-      "community": 0,
-      "community_name": "App.tsx",
+      "community": 11,
+      "community_name": "capacity.ts",
       "norm_label": "getavailablecapacityfordaterange()"
     },
     {
@@ -1363,8 +1308,8 @@
       "source_location": "L158",
       "_origin": "ast",
       "id": "src_lib_capacity_getsessioncountsfordaterange",
-      "community": 0,
-      "community_name": "App.tsx",
+      "community": 11,
+      "community_name": "capacity.ts",
       "norm_label": "getsessioncountsfordaterange()"
     },
     {
@@ -1429,8 +1374,8 @@
       "source_location": "L15",
       "_origin": "ast",
       "id": "src_pages_addlog_addlog",
-      "community": 11,
-      "community_name": "capacity.ts",
+      "community": 0,
+      "community_name": "App.tsx",
       "norm_label": "addlog()"
     },
     {
@@ -1440,8 +1385,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "src_pages_addstudent",
-      "community": 11,
-      "community_name": "capacity.ts",
+      "community": 0,
+      "community_name": "App.tsx",
       "norm_label": "addstudent.tsx"
     },
     {
@@ -1451,8 +1396,8 @@
       "source_location": "L8",
       "_origin": "ast",
       "id": "src_pages_addstudent_container",
-      "community": 11,
-      "community_name": "capacity.ts",
+      "community": 0,
+      "community_name": "App.tsx",
       "norm_label": "container"
     },
     {
@@ -1462,8 +1407,8 @@
       "source_location": "L13",
       "_origin": "ast",
       "id": "src_pages_addstudent_addstudent",
-      "community": 11,
-      "community_name": "capacity.ts",
+      "community": 0,
+      "community_name": "App.tsx",
       "norm_label": "addstudent()"
     },
     {
@@ -1583,8 +1528,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "src_pages_bulkschedule",
-      "community": 0,
-      "community_name": "App.tsx",
+      "community": 11,
+      "community_name": "capacity.ts",
       "norm_label": "bulkschedule.tsx"
     },
     {
@@ -1594,8 +1539,8 @@
       "source_location": "L8",
       "_origin": "ast",
       "id": "src_pages_bulkschedule_container",
-      "community": 0,
-      "community_name": "App.tsx",
+      "community": 11,
+      "community_name": "capacity.ts",
       "norm_label": "container"
     },
     {
@@ -1605,8 +1550,8 @@
       "source_location": "L13",
       "_origin": "ast",
       "id": "src_pages_bulkschedule_bulkschedule",
-      "community": 0,
-      "community_name": "App.tsx",
+      "community": 11,
+      "community_name": "capacity.ts",
       "norm_label": "bulkschedule()"
     },
     {
@@ -1616,8 +1561,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "src_pages_dashboard",
-      "community": 11,
-      "community_name": "capacity.ts",
+      "community": 0,
+      "community_name": "App.tsx",
       "norm_label": "dashboard.tsx"
     },
     {
@@ -1627,8 +1572,8 @@
       "source_location": "L10",
       "_origin": "ast",
       "id": "src_pages_dashboard_container",
-      "community": 11,
-      "community_name": "capacity.ts",
+      "community": 0,
+      "community_name": "App.tsx",
       "norm_label": "container"
     },
     {
@@ -1638,8 +1583,8 @@
       "source_location": "L20",
       "_origin": "ast",
       "id": "src_pages_dashboard_item",
-      "community": 11,
-      "community_name": "capacity.ts",
+      "community": 0,
+      "community_name": "App.tsx",
       "norm_label": "item"
     },
     {
@@ -1649,8 +1594,8 @@
       "source_location": "L25",
       "_origin": "ast",
       "id": "src_pages_dashboard_dashboard",
-      "community": 11,
-      "community_name": "capacity.ts",
+      "community": 0,
+      "community_name": "App.tsx",
       "norm_label": "dashboard()"
     },
     {
@@ -1660,8 +1605,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "src_pages_kanbanboard",
-      "community": 11,
-      "community_name": "capacity.ts",
+      "community": 0,
+      "community_name": "App.tsx",
       "norm_label": "kanbanboard.tsx"
     },
     {
@@ -1671,8 +1616,8 @@
       "source_location": "L9",
       "_origin": "ast",
       "id": "src_pages_kanbanboard_container",
-      "community": 11,
-      "community_name": "capacity.ts",
+      "community": 0,
+      "community_name": "App.tsx",
       "norm_label": "container"
     },
     {
@@ -1682,8 +1627,8 @@
       "source_location": "L14",
       "_origin": "ast",
       "id": "src_pages_kanbanboard_item",
-      "community": 11,
-      "community_name": "capacity.ts",
+      "community": 0,
+      "community_name": "App.tsx",
       "norm_label": "item"
     },
     {
@@ -1693,8 +1638,8 @@
       "source_location": "L20",
       "_origin": "ast",
       "id": "src_pages_kanbanboard_reschedulemodalprops",
-      "community": 11,
-      "community_name": "capacity.ts",
+      "community": 0,
+      "community_name": "App.tsx",
       "norm_label": "reschedulemodalprops"
     },
     {
@@ -1704,8 +1649,8 @@
       "source_location": "L27",
       "_origin": "ast",
       "id": "src_pages_kanbanboard_reschedulemodal",
-      "community": 11,
-      "community_name": "capacity.ts",
+      "community": 0,
+      "community_name": "App.tsx",
       "norm_label": "reschedulemodal()"
     },
     {
@@ -1715,8 +1660,8 @@
       "source_location": "L171",
       "_origin": "ast",
       "id": "src_pages_kanbanboard_actioniconprops",
-      "community": 11,
-      "community_name": "capacity.ts",
+      "community": 0,
+      "community_name": "App.tsx",
       "norm_label": "actioniconprops"
     },
     {
@@ -1726,8 +1671,8 @@
       "source_location": "L178",
       "_origin": "ast",
       "id": "src_pages_kanbanboard_actionicon",
-      "community": 11,
-      "community_name": "capacity.ts",
+      "community": 0,
+      "community_name": "App.tsx",
       "norm_label": "actionicon()"
     },
     {
@@ -1737,8 +1682,8 @@
       "source_location": "L211",
       "_origin": "ast",
       "id": "src_pages_kanbanboard_kanbanboard",
-      "community": 11,
-      "community_name": "capacity.ts",
+      "community": 0,
+      "community_name": "App.tsx",
       "norm_label": "kanbanboard()"
     },
     {
@@ -1748,8 +1693,8 @@
       "source_location": "L227",
       "_origin": "ast",
       "id": "src_pages_kanbanboard_rationale_227",
-      "community": 11,
-      "community_name": "capacity.ts",
+      "community": 0,
+      "community_name": "App.tsx",
       "norm_label": "important: toisostring() is utc-based and shifts day in +05:30 timezones."
     },
     {
@@ -1781,8 +1726,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "src_pages_settings",
-      "community": 0,
-      "community_name": "App.tsx",
+      "community": 2,
+      "community_name": "index.ts",
       "norm_label": "settings.tsx"
     },
     {
@@ -1792,8 +1737,8 @@
       "source_location": "L10",
       "_origin": "ast",
       "id": "src_pages_settings_systemsettingstab",
-      "community": 0,
-      "community_name": "App.tsx",
+      "community": 2,
+      "community_name": "index.ts",
       "norm_label": "systemsettingstab()"
     },
     {
@@ -1803,8 +1748,8 @@
       "source_location": "L175",
       "_origin": "ast",
       "id": "src_pages_settings_container",
-      "community": 0,
-      "community_name": "App.tsx",
+      "community": 2,
+      "community_name": "index.ts",
       "norm_label": "container"
     },
     {
@@ -1814,8 +1759,8 @@
       "source_location": "L180",
       "_origin": "ast",
       "id": "src_pages_settings_settings",
-      "community": 0,
-      "community_name": "App.tsx",
+      "community": 2,
+      "community_name": "index.ts",
       "norm_label": "settings()"
     },
     {
@@ -1825,8 +1770,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "src_pages_studentdirectory",
-      "community": 0,
-      "community_name": "App.tsx",
+      "community": 11,
+      "community_name": "capacity.ts",
       "norm_label": "studentdirectory.tsx"
     },
     {
@@ -1836,8 +1781,8 @@
       "source_location": "L8",
       "_origin": "ast",
       "id": "src_pages_studentdirectory_container",
-      "community": 0,
-      "community_name": "App.tsx",
+      "community": 11,
+      "community_name": "capacity.ts",
       "norm_label": "container"
     },
     {
@@ -1847,8 +1792,8 @@
       "source_location": "L13",
       "_origin": "ast",
       "id": "src_pages_studentdirectory_normalizecourse",
-      "community": 0,
-      "community_name": "App.tsx",
+      "community": 11,
+      "community_name": "capacity.ts",
       "norm_label": "normalizecourse()"
     },
     {
@@ -1858,53 +1803,9 @@
       "source_location": "L20",
       "_origin": "ast",
       "id": "src_pages_studentdirectory_studentdirectory",
-      "community": 0,
-      "community_name": "App.tsx",
+      "community": 11,
+      "community_name": "capacity.ts",
       "norm_label": "studentdirectory()"
-    },
-    {
-      "label": "StudentProfile.backup.tsx",
-      "file_type": "code",
-      "source_file": "src/pages/StudentProfile.backup.tsx",
-      "source_location": "L1",
-      "_origin": "ast",
-      "id": "src_pages_studentprofile_backup",
-      "community": 0,
-      "community_name": "App.tsx",
-      "norm_label": "studentprofile.backup.tsx"
-    },
-    {
-      "label": "container",
-      "file_type": "code",
-      "source_file": "src/pages/StudentProfile.backup.tsx",
-      "source_location": "L10",
-      "_origin": "ast",
-      "id": "src_pages_studentprofile_backup_container",
-      "community": 0,
-      "community_name": "App.tsx",
-      "norm_label": "container"
-    },
-    {
-      "label": "item",
-      "file_type": "code",
-      "source_file": "src/pages/StudentProfile.backup.tsx",
-      "source_location": "L15",
-      "_origin": "ast",
-      "id": "src_pages_studentprofile_backup_item",
-      "community": 0,
-      "community_name": "App.tsx",
-      "norm_label": "item"
-    },
-    {
-      "label": "StudentProfile()",
-      "file_type": "code",
-      "source_file": "src/pages/StudentProfile.backup.tsx",
-      "source_location": "L20",
-      "_origin": "ast",
-      "id": "src_pages_studentprofile_backup_studentprofile",
-      "community": 0,
-      "community_name": "App.tsx",
-      "norm_label": "studentprofile()"
     },
     {
       "label": "StudentProfile.tsx",
@@ -1913,41 +1814,41 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "src_pages_studentprofile",
-      "community": 0,
-      "community_name": "App.tsx",
+      "community": 14,
+      "community_name": "assessmentEngine.ts",
       "norm_label": "studentprofile.tsx"
     },
     {
       "label": "container",
       "file_type": "code",
       "source_file": "src/pages/StudentProfile.tsx",
-      "source_location": "L12",
+      "source_location": "L10",
       "_origin": "ast",
       "id": "src_pages_studentprofile_container",
-      "community": 0,
-      "community_name": "App.tsx",
+      "community": 14,
+      "community_name": "assessmentEngine.ts",
       "norm_label": "container"
     },
     {
       "label": "item",
       "file_type": "code",
       "source_file": "src/pages/StudentProfile.tsx",
-      "source_location": "L17",
+      "source_location": "L15",
       "_origin": "ast",
       "id": "src_pages_studentprofile_item",
-      "community": 0,
-      "community_name": "App.tsx",
+      "community": 14,
+      "community_name": "assessmentEngine.ts",
       "norm_label": "item"
     },
     {
       "label": "StudentProfile()",
       "file_type": "code",
       "source_file": "src/pages/StudentProfile.tsx",
-      "source_location": "L22",
+      "source_location": "L20",
       "_origin": "ast",
       "id": "src_pages_studentprofile_studentprofile",
-      "community": 0,
-      "community_name": "App.tsx",
+      "community": 14,
+      "community_name": "assessmentEngine.ts",
       "norm_label": "studentprofile()"
     },
     {
@@ -2034,8 +1935,8 @@
       "source_location": "L57",
       "_origin": "ast",
       "id": "src_types_index_systemtag",
-      "community": 15,
-      "community_name": "GlobalTagManager.tsx",
+      "community": 2,
+      "community_name": "index.ts",
       "norm_label": "systemtag"
     },
     {
@@ -2045,8 +1946,8 @@
       "source_location": "L65",
       "_origin": "ast",
       "id": "src_types_index_tagcategory",
-      "community": 15,
-      "community_name": "GlobalTagManager.tsx",
+      "community": 2,
+      "community_name": "index.ts",
       "norm_label": "tagcategory"
     },
     {
@@ -2199,8 +2100,8 @@
       "source_location": "L163",
       "_origin": "ast",
       "id": "src_types_index_datecapacitystatus",
-      "community": 2,
-      "community_name": "index.ts",
+      "community": 11,
+      "community_name": "capacity.ts",
       "norm_label": "datecapacitystatus"
     },
     {
@@ -2254,15 +2155,15 @@
       "source_location": "L199",
       "_origin": "ast",
       "id": "src_types_index_telemetrypayload",
-      "community": 0,
-      "community_name": "App.tsx",
+      "community": 14,
+      "community_name": "assessmentEngine.ts",
       "norm_label": "telemetrypayload"
     },
     {
       "label": "StudentTelemetry",
       "file_type": "code",
       "source_file": "src/types/index.ts",
-      "source_location": "L220",
+      "source_location": "L209",
       "_origin": "ast",
       "id": "src_types_index_studenttelemetry",
       "community": 2,
@@ -2276,8 +2177,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "src_utils_dateformatter",
-      "community": 11,
-      "community_name": "capacity.ts",
+      "community": 0,
+      "community_name": "App.tsx",
       "norm_label": "dateformatter.ts"
     },
     {
@@ -2287,8 +2188,8 @@
       "source_location": "L7",
       "_origin": "ast",
       "id": "src_utils_dateformatter_formatdisplaydate",
-      "community": 11,
-      "community_name": "capacity.ts",
+      "community": 0,
+      "community_name": "App.tsx",
       "norm_label": "formatdisplaydate()"
     },
     {
@@ -2298,8 +2199,8 @@
       "source_location": "L36",
       "_origin": "ast",
       "id": "src_utils_dateformatter_isoverdue",
-      "community": 11,
-      "community_name": "capacity.ts",
+      "community": 0,
+      "community_name": "App.tsx",
       "norm_label": "isoverdue()"
     },
     {
@@ -2309,8 +2210,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "src_utils_stringformatter",
-      "community": 11,
-      "community_name": "capacity.ts",
+      "community": 0,
+      "community_name": "App.tsx",
       "norm_label": "stringformatter.ts"
     },
     {
@@ -2320,8 +2221,8 @@
       "source_location": "L5",
       "_origin": "ast",
       "id": "src_utils_stringformatter_totitlecase",
-      "community": 11,
-      "community_name": "capacity.ts",
+      "community": 0,
+      "community_name": "App.tsx",
       "norm_label": "totitlecase()"
     },
     {
@@ -2331,8 +2232,8 @@
       "source_location": "L14",
       "_origin": "ast",
       "id": "src_utils_stringformatter_tosentencecase",
-      "community": 11,
-      "community_name": "capacity.ts",
+      "community": 0,
+      "community_name": "App.tsx",
       "norm_label": "tosentencecase()"
     },
     {
@@ -5800,17 +5701,6 @@
     {
       "relation": "contains",
       "confidence": "EXTRACTED",
-      "source_file": "refactor.py",
-      "source_location": "L4",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "refactor",
-      "target": "refactor_main",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
       "source_file": "src/App.tsx",
       "source_location": "L18",
       "weight": 1.0,
@@ -6206,76 +6096,6 @@
     {
       "relation": "contains",
       "confidence": "EXTRACTED",
-      "source_file": "src/analytics/ColdStart.ts",
-      "source_location": "L3",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "src_analytics_coldstart",
-      "target": "src_analytics_coldstart_calculateconfidencemultiplier",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "src/analytics/ColdStart.ts",
-      "source_location": "L1",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "src_analytics_coldstart",
-      "target": "src_analytics_coldstart_enginestatus",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "imports_from",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "src/pages/StudentProfile.tsx",
-      "source_location": "L10",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "src_pages_studentprofile",
-      "target": "src_analytics_coldstart",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "imports",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "src/pages/StudentProfile.tsx",
-      "source_location": "L9",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "src_pages_studentprofile",
-      "target": "src_analytics_coldstart_enginestatus",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "imports",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "src/pages/StudentProfile.tsx",
-      "source_location": "L10",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "src_pages_studentprofile",
-      "target": "src_analytics_coldstart_calculateconfidencemultiplier",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "src/pages/StudentProfile.tsx",
-      "source_location": "L523",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "src_pages_studentprofile_studentprofile",
-      "target": "src_analytics_coldstart_calculateconfidencemultiplier"
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
       "source_file": "src/components/AssessmentWizard.tsx",
       "source_location": "L21",
       "weight": 1.0,
@@ -6380,24 +6200,12 @@
       "confidence_score": 1.0
     },
     {
-      "relation": "imports_from",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "src/pages/StudentProfile.backup.tsx",
-      "source_location": "L7",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "src_pages_studentprofile_backup",
-      "target": "src_components_assessmentwizard",
-      "confidence_score": 1.0
-    },
-    {
       "relation": "calls",
       "context": "call",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/components/AssessmentWizard.tsx",
-      "source_location": "L113",
+      "source_location": "L67",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_components_assessmentwizard_assessmentwizard",
@@ -6424,18 +6232,6 @@
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_pages_studentprofile",
-      "target": "src_components_assessmentwizard_assessmentwizard",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "imports",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "src/pages/StudentProfile.backup.tsx",
-      "source_location": "L7",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "src_pages_studentprofile_backup",
       "target": "src_components_assessmentwizard_assessmentwizard",
       "confidence_score": 1.0
     },
@@ -7748,18 +7544,6 @@
       "confidence_score": 1.0
     },
     {
-      "relation": "imports_from",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "src/pages/StudentProfile.backup.tsx",
-      "source_location": "L6",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "src_pages_studentprofile_backup",
-      "target": "src_lib_supabase",
-      "confidence_score": 1.0
-    },
-    {
       "relation": "imports",
       "context": "import",
       "confidence": "EXTRACTED",
@@ -7892,18 +7676,6 @@
       "confidence_score": 1.0
     },
     {
-      "relation": "imports",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "src/pages/StudentProfile.backup.tsx",
-      "source_location": "L6",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "src_pages_studentprofile_backup",
-      "target": "src_lib_supabase_supabase",
-      "confidence_score": 1.0
-    },
-    {
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/pages/AddLog.tsx",
@@ -7955,7 +7727,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/pages/AddLog.tsx",
-      "source_location": "L254",
+      "source_location": "L252",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_pages_addlog_addlog",
@@ -8228,7 +8000,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/pages/Dashboard.tsx",
-      "source_location": "L620",
+      "source_location": "L614",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_pages_dashboard_dashboard",
@@ -8240,7 +8012,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/pages/Dashboard.tsx",
-      "source_location": "L608",
+      "source_location": "L602",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_pages_dashboard_dashboard",
@@ -8450,65 +8222,8 @@
     {
       "relation": "contains",
       "confidence": "EXTRACTED",
-      "source_file": "src/pages/StudentProfile.backup.tsx",
-      "source_location": "L10",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "src_pages_studentprofile_backup",
-      "target": "src_pages_studentprofile_backup_container",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "src/pages/StudentProfile.backup.tsx",
-      "source_location": "L15",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "src_pages_studentprofile_backup",
-      "target": "src_pages_studentprofile_backup_item",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "src/pages/StudentProfile.backup.tsx",
-      "source_location": "L20",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "src_pages_studentprofile_backup",
-      "target": "src_pages_studentprofile_backup_studentprofile",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "imports_from",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "src/pages/StudentProfile.backup.tsx",
-      "source_location": "L8",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "src_pages_studentprofile_backup",
-      "target": "src_types_index",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "imports",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "src/pages/StudentProfile.backup.tsx",
-      "source_location": "L8",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "src_pages_studentprofile_backup",
-      "target": "src_types_index_telemetrypayload",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
       "source_file": "src/pages/StudentProfile.tsx",
-      "source_location": "L12",
+      "source_location": "L10",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_pages_studentprofile",
@@ -8519,7 +8234,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/pages/StudentProfile.tsx",
-      "source_location": "L17",
+      "source_location": "L15",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_pages_studentprofile",
@@ -8530,7 +8245,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/pages/StudentProfile.tsx",
-      "source_location": "L22",
+      "source_location": "L20",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_pages_studentprofile",
@@ -8807,7 +8522,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/types/index.ts",
-      "source_location": "L220",
+      "source_location": "L209",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_types_index",
@@ -11402,5 +11117,5 @@
     }
   ],
   "hyperedges": [],
-  "built_at_commit": "f0e53c2df63fe2c6c6150dac5068897f3e132aaa"
+  "built_at_commit": "ba4b70d731b92bb5177d1b168ff7c18607ae2c5d"
 }

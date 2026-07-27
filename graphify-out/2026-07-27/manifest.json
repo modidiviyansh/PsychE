@@ -15,8 +15,8 @@
     "semantic_hash": ""
   },
   "package.json": {
-    "mtime": 1785172577.9137533,
-    "ast_hash": "1a6dab23aa9c419664f4abfa496332e0",
+    "mtime": 1785077661.0407379,
+    "ast_hash": "e500d77eec4aa61c8d0ad5344ff42153",
     "semantic_hash": ""
   },
   "src/App.tsx": {
@@ -25,8 +25,8 @@
     "semantic_hash": ""
   },
   "src/components/AssessmentWizard.tsx": {
-    "mtime": 1785119994.1062953,
-    "ast_hash": "27c60487baaa1bbe904246692f6cb33e",
+    "mtime": 1785078024.3509457,
+    "ast_hash": "fa1275457d49321d4200dee247019503",
     "semantic_hash": ""
   },
   "src/components/GlobalTagManager.tsx": {
@@ -80,8 +80,8 @@
     "semantic_hash": ""
   },
   "src/pages/AddLog.tsx": {
-    "mtime": 1785120663.1005802,
-    "ast_hash": "26413ae2ab556a7a5a2e38d907c995ea",
+    "mtime": 1785072676.0037827,
+    "ast_hash": "5ece037981d950cc6be04949cf1f6db0",
     "semantic_hash": ""
   },
   "src/pages/AddStudent.tsx": {
@@ -105,18 +105,18 @@
     "semantic_hash": ""
   },
   "src/pages/Dashboard.tsx": {
-    "mtime": 1785127554.3638182,
-    "ast_hash": "a154580530fb9019e389118bd8e69193",
+    "mtime": 1785049247.3617544,
+    "ast_hash": "823387d2e958cdf00d763dad5448f3bd",
     "semantic_hash": ""
   },
   "src/pages/KanbanBoard.tsx": {
-    "mtime": 1785127364.7161524,
-    "ast_hash": "e4bae2b4319fa0ada6c47c3d2c531bd0",
+    "mtime": 1785072542.0582783,
+    "ast_hash": "718b5f329bf865fbdac4b896a96680fd",
     "semantic_hash": ""
   },
   "src/pages/ReportExport.tsx": {
-    "mtime": 1785119807.306682,
-    "ast_hash": "16d38f26e7309c2c893d09a9b38b464f",
+    "mtime": 1785048407.135156,
+    "ast_hash": "b7944ec8d1932732870a08aa85382e50",
     "semantic_hash": ""
   },
   "src/pages/Settings.tsx": {
@@ -130,13 +130,13 @@
     "semantic_hash": ""
   },
   "src/pages/StudentProfile.tsx": {
-    "mtime": 1785172032.257806,
-    "ast_hash": "9d32ef083dbbc3f2b410ab693fb966ad",
+    "mtime": 1785077687.2486281,
+    "ast_hash": "a82d5ee85ad67f07a46d537a4e4a57ee",
     "semantic_hash": ""
   },
   "src/types/index.ts": {
-    "mtime": 1785164607.5693817,
-    "ast_hash": "a169c2e84246479444b918efa2a5149b",
+    "mtime": 1785077670.2047558,
+    "ast_hash": "0218de328c1942e0cfcb19874e836309",
     "semantic_hash": ""
   },
   "src/utils/dateFormatter.ts": {
@@ -297,31 +297,6 @@
   "v5_migration.sql": {
     "mtime": 1785077307.6525004,
     "ast_hash": "bc59aea85cea03c5e264f6a0d89ce742",
-    "semantic_hash": ""
-  },
-  "refactor.py": {
-    "mtime": 1785130530.810451,
-    "ast_hash": "b3a52db5f66a177b6d202f9002701970",
-    "semantic_hash": ""
-  },
-  "src/analytics/ColdStart.ts": {
-    "mtime": 1785162446.586691,
-    "ast_hash": "98eae7012fc825662c46d356e46f7f6e",
-    "semantic_hash": ""
-  },
-  "src/pages/StudentProfile.backup.tsx": {
-    "mtime": 1785130245.1478782,
-    "ast_hash": "2c4823db4f07fc58dd6ab67a500a5ade",
-    "semantic_hash": ""
-  },
-  "v5_analytics_migration.sql": {
-    "mtime": 1785171339.4014027,
-    "ast_hash": "b4b4e0ed09d6db61ec46e2acd6eacc6f",
-    "semantic_hash": ""
-  },
-  ".github/workflows/daily_analytics.yml": {
-    "mtime": 1785173191.3754394,
-    "ast_hash": "d03c9341fd040161a83966e74d92655a",
     "semantic_hash": ""
   }
 }
