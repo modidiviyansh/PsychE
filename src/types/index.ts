@@ -48,6 +48,9 @@ export interface Module {
   name: string;
   type: ModuleType;                 // CHECK: COMPE | PsycheSPA | Custom
   domain_code?: string | null;      // FK → PsychE_Domains(code)
+  domain_weight?: number;           // V6 — w_m, clinical weight within its domain. Default 1.0
+  scale_min?: number;               // V6 — instrument's theoretical minimum (e.g. 1 for 4-pt Likert). Default 1
+  scale_max?: number;               // V6 — instrument's theoretical maximum (e.g. 4 for 4-pt Likert). Default 4
   description?: string | null;
   smart_keywords: string[];         // TEXT[] — GIN-indexed
   is_locked: boolean;               // One-time-edit lock flag
@@ -190,10 +193,18 @@ export interface DomainScores {
   SEL: number | null;
 }
 
+/** Dominant tension T* — the valid pair with the largest absolute divergence */
+export interface DominantTension {
+  pair: 'COG_EMH' | 'SOC_FAM' | 'CAR_SEL' | 'BHV_EMH';
+  value: number;
+}
+
 export interface TelemetryTensions {
-  T_cognitive_emotional: number | null;
-  T_social_home: number | null;
-  T_internal_external: number | null;
+  T_cognitive_emotional: number | null;  // COG - EMH: masking / suppressor axis
+  T_social_home: number | null;          // SOC - FAM: escape-valve axis
+  T_career_identity: number | null;      // CAR - SEL: authenticity axis
+  T_behavioral_emotional: number | null; // BHV - EMH: externalizing vs. internalizing axis
+  dominant_tension?: DominantTension | null;
 }
 
 export interface TelemetryPayload {

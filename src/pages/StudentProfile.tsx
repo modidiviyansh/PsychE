@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Edit2, Calendar, Phone, Mail, BookOpen, ArrowLeft, Eye, EyeOff, User, BrainCircuit, ChevronDown, ChevronUp, FileDown, X, Tag, Plus, Activity, Sparkles, AlertTriangle } from 'lucide-react';
+import { Edit2, Calendar, Phone, Mail, BookOpen, ArrowLeft, Eye, EyeOff, User, BrainCircuit, ChevronDown, ChevronUp, FileDown, X, Tag, Plus, Activity, Sparkles, AlertTriangle, Compass } from 'lucide-react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, Tooltip } from 'recharts';
 import { supabase } from '../lib/supabase';
@@ -647,46 +647,102 @@ export const StudentProfile: React.FC = () => {
           );
         })()}
 
-        {/* Tension Alerts (Full-Width Card in Telemetry Tab) */}
+        {/* Cross-Domain Tension (Full-Width Card in Telemetry Tab) */}
         {telemetry && telemetry.data_completeness > 0 && (() => {
-          const tensionWarnings: string[] = [];
-          if (telemetry.tensions) {
-            if (Math.abs(telemetry.tensions.T_cognitive_emotional ?? 0) > 0.3) {
-              tensionWarnings.push('High Cognitive / Emotional Tension Detected');
-            }
-            if (Math.abs(telemetry.tensions.T_social_home ?? 0) > 0.3) {
-              tensionWarnings.push('High Social / Home Dynamics Tension Detected');
-            }
-            if (Math.abs(telemetry.tensions.T_internal_external ?? 0) > 0.3) {
-              tensionWarnings.push('High Internal / External Tension Detected');
-            }
-          }
+          const TENSION_THRESHOLD = 0.3; // matches consultant's |tension| > 0.3 significance threshold
 
-          if (tensionWarnings.length === 0) return null;
+          // Each axis: [value, positive-direction interpretation, negative-direction interpretation]
+          const axes: { key: string; label: string; value: number | null | undefined; positive: string; negative: string }[] = [
+            {
+              key: 'COG_EMH',
+              label: 'Cognitive / Emotional (Masking Axis)',
+              value: telemetry.tensions?.T_cognitive_emotional,
+              positive: 'Possible masking pattern — cognitively intact, but emotionally struggling. High-functioning students showing this pattern are the least likely to be flagged by academic monitoring alone.',
+              negative: 'Cognitively strained relative to emotional state — possibly a learning-difficulty or attention-related pattern rather than a mental-health concern; consider a different referral pathway.'
+            },
+            {
+              key: 'SOC_FAM',
+              label: 'Social / Family (Escape-Valve Axis)',
+              value: telemetry.tensions?.T_social_home,
+              positive: 'Finds more stability among peers than at home — home environment may be a source of stress the student is compensating for socially.',
+              negative: 'More stable at home than socially — possible peer/social stressor despite a supportive home environment.'
+            },
+            {
+              key: 'CAR_SEL',
+              label: 'Career / Identity (Authenticity Axis)',
+              value: telemetry.tensions?.T_career_identity,
+              positive: 'Career direction is clearer than self-identity coherence — worth checking whether this path is self-chosen or externally imposed.',
+              negative: 'Strong sense of self without a clear career direction — may simply reflect a developmental stage rather than a concern.'
+            },
+            {
+              key: 'BHV_EMH',
+              label: 'Behavioral / Emotional (Internalizing vs. Externalizing)',
+              value: telemetry.tensions?.T_behavioral_emotional,
+              positive: 'Possible internalizing pattern — behavior appears regulated outwardly, but emotional distress is present beneath the surface.',
+              negative: 'Possible externalizing pattern — behavioral regulation is strained relative to emotional state (acting out).'
+            }
+          ];
+
+          const flagged = axes.filter(a => a.value != null && Math.abs(a.value) > TENSION_THRESHOLD);
+          const dominant = telemetry.tensions?.dominant_tension;
+
+          if (flagged.length === 0 && !dominant) return null;
 
           return (
             <motion.div variants={item} className="bento-card col-span-12">
               <h3 className="text-h3 mb-4 flex items-center gap-2" style={{ color: '#f59e0b' }}>
-                <AlertTriangle size={18} /> Cross-Domain Tension Warnings
+                <AlertTriangle size={18} /> Cross-Domain Tension
               </h3>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                {tensionWarnings.map((warn, idx) => (
-                  <div key={idx} style={{
-                    padding: '1rem 1.25rem',
-                    borderRadius: 'var(--radius-md)',
-                    backgroundColor: 'rgba(245, 158, 11, 0.12)',
-                    border: '1px solid rgba(245, 158, 11, 0.3)',
-                    color: '#f59e0b',
-                    fontSize: '0.875rem',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.75rem'
-                  }}>
-                    <AlertTriangle size={20} style={{ flexShrink: 0 }} />
-                    <span style={{ fontWeight: 600 }}>{warn}</span>
-                  </div>
-                ))}
-              </div>
+
+              {dominant && (
+                <div style={{
+                  padding: '0.875rem 1.25rem',
+                  borderRadius: 'var(--radius-md)',
+                  backgroundColor: 'rgba(99, 102, 241, 0.1)',
+                  border: '1px solid rgba(99, 102, 241, 0.3)',
+                  color: '#818cf8',
+                  fontSize: '0.8125rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.75rem',
+                  marginBottom: '1rem'
+                }}>
+                  <Compass size={18} style={{ flexShrink: 0 }} />
+                  <span>
+                    <strong>Profile Consistency:</strong> dominant divergence on the{' '}
+                    <strong>{axes.find(a => a.key === dominant.pair)?.label ?? dominant.pair}</strong> axis
+                    {' '}(T* = {Math.round(dominant.value * 100)} pts). {Math.abs(dominant.value) > TENSION_THRESHOLD
+                      ? 'A single overall score would actively mislead here — read the domain breakdown, not just the average.'
+                      : 'Below the significance threshold — this student\'s profile is currently internally consistent.'}
+                  </span>
+                </div>
+              )}
+
+              {flagged.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  {flagged.map(a => (
+                    <div key={a.key} style={{
+                      padding: '1rem 1.25rem',
+                      borderRadius: 'var(--radius-md)',
+                      backgroundColor: 'rgba(245, 158, 11, 0.12)',
+                      border: '1px solid rgba(245, 158, 11, 0.3)',
+                      color: '#f59e0b',
+                      fontSize: '0.875rem',
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: '0.75rem'
+                    }}>
+                      <AlertTriangle size={20} style={{ flexShrink: 0, marginTop: '2px' }} />
+                      <span>
+                        <span style={{ fontWeight: 600, display: 'block', marginBottom: '0.2rem' }}>
+                          {a.label} — {Math.round((a.value as number) * 100)} pt divergence
+                        </span>
+                        {(a.value as number) > 0 ? a.positive : a.negative}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </motion.div>
           );
         })()}

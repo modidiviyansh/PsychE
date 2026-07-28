@@ -281,7 +281,8 @@ function computeModuleScore(responses: Array<{score_value: number, is_reverse_sc
 - Active item highlighted with `border-left: 3px solid var(--accent-blue)` and `background: var(--bg-tertiary)`.
 
 ### Detail Pane
-- **Module header section:** Name (editable inline), Type selector, Smart Keywords pill editor (add/remove keywords as pills), Description textarea, Lock toggle (with confirmation modal if locking).
+- **Module header section:** Name (editable inline), Type selector, Domain selector, Smart Keywords pill editor (add/remove keywords as pills), Description textarea, Lock toggle (with confirmation modal if locking).
+- **Domain Scoring Configuration (V6):** two number inputs next to the Domain selector — **Domain Weight** (`domain_weight`, the module's clinical weight `w_m` within its domain relative to other modules; default `1.0`, must be `> 0`) and **Scale Min–Max** (`scale_min`/`scale_max`, the instrument's theoretical raw-score range for min-max normalization; default `1`–`4` for 4-point Likert). Both save on blur via the same `patchModule` pattern as name/description. `scale_max` must be `>` `scale_min` — reject and revert with a toast if violated. Disabled when `is_locked`, same as the rest of the module header. Owned by `ARCH_technical-specs.md` §8.1 for the scoring math; this entry owns only the form/UI.
 - **Questions list:** Below module header; each question in a card with:
   - Prompt text (editable if module not locked OR if `has_been_edited = false`)
   - Reverse-scored toggle (checkbox)
@@ -332,10 +333,45 @@ function computeModuleScore(responses: Array<{score_value: number, is_reverse_sc
 
 ---
 
-## 9. Forbidden Patterns
+## 9. Analytics & Telemetry UI Patterns (V5)
+
+**Data source:** `PsychE_Student_Telemetry` (schema + scoring formulas owned by `ARCH_technical-specs.md` §8 — this section owns presentation only).
+
+### 9.1 School-Wide Metrics (`src/pages/Analytics.tsx`)
+- `MetricCard`: bento card, label (uppercase, muted) + icon chip (top row) + large value (bottom), optional `sub` caption. Skeleton pulse block shown while `loading`.
+- `MiniBar`: label + count/percentage row over a thin animated fill bar (`framer-motion`, width animates `0 → pct%` on mount, 700ms ease-out).
+- Layout: row 1 = four `col-span-3` `MetricCard`s; row 2 = three `col-span-4` detail cards (Risk Distribution, Session Health, Course Breakdown).
+
+### 9.2 Student Profile Tabs (`src/pages/StudentProfile.tsx`)
+- Two tabs: **Profile & History** (default) and **Telemetry Analytics** (`Sparkles` icon).
+- Tab switch uses `framer-motion` `AnimatePresence mode="wait"` — outgoing tab fades/slides out (`y: -10`) before incoming fades/slides in (`y: 10`), not a simultaneous cross-fade.
+- Tab underline: 2px solid `var(--color-primary)` on active, transparent otherwise; 200ms transition on all properties.
+
+### 9.3 Domain Radar Chart
+- Library: `recharts` `RadarChart` (not `framer-motion` — recharts owns its own animation).
+- One axis per `PsychE_Domains` code, 0–100 scale, `PolarRadiusAxis` gridlines at `rgba(255,255,255,0.15)`.
+- Stroke `#818cf8` / fill `#6366f1` at `fillOpacity: 0.35` — an indigo pairing distinct from the standard `--accent-purple` (`#9b59f5`) token. Not yet reconciled into `src/index.css` tokens; treat as an intentional one-off for telemetry surfaces, not a pattern to reuse elsewhere without adding a token first.
+- `warming` engine_status overlays a "Building profile — N% Confidence" badge (amber, `--accent-amber` family) top-right of the chart card.
+
+### 9.4 ETI Data Card
+- Full-width (`col-span-12`) card, hidden entirely when `engine_status === 'cold_start'` or no ETI score exists yet (not shown as an empty/zero state — just absent).
+- Three-stat row (Attendance / Follow-Through / Recency), each an equal-width sub-card, followed by a centered "Master ETI Score / 100" hero stat in an indigo-tinted panel.
+- `avoidance_flag === true` renders a red banner above the stats: "Chronic No-Show Pattern (N% avoidance)".
+
+### 9.5 Cross-Domain Tension (V6)
+- Full-width card, only rendered when `data_completeness > 0` AND (at least one of the 4 named axes exceeds `|tension| > 0.3`, OR a `dominant_tension` exists) — threshold and formulas owned by `ARCH_technical-specs.md` §8.1.
+- **Profile Consistency summary** (indigo-tinted, `Compass` icon): always shown first when `dominant_tension` is present, naming which of the 4 axes has the largest divergence and its magnitude in points (`value × 100`). Its supporting sentence changes based on whether that dominant value also crosses the 0.3 threshold — "a single overall score would mislead here" above threshold, vs. "profile is currently internally consistent" below it. This card can appear even when no individual axis is flagged — it's informative on its own per the consultant model, not just a rollup of the flagged list below it.
+- **Flagged axis cards** (amber, `AlertTriangle` icon): one per axis exceeding the threshold, each showing the point divergence and a **sign-aware interpretation sentence** (positive vs. negative direction have distinct clinical meanings — e.g. `COG_EMH > 0` reads as a masking pattern, `< 0` reads as a possible learning/attention pattern; see `ARCH_technical-specs.md` §8.1 for all 4 axes' interpretations). Never collapse to `Math.abs()` before choosing the message — sign is the whole point.
+
+### 9.6 Known deviation — inline styles
+Sections 9.1–9.5 above are implemented almost entirely with inline `style={{ }}` objects rather than the CSS classes mandated by Forbidden Pattern #4 below. This is a real, current violation of that rule — not a doc gap. Flagged here rather than silently retrofitted; a future pass should extract these into `index.css` utility classes if the pattern keeps expanding.
+
+---
+
+## 10. Forbidden Patterns
 - ❌ Do NOT use `TailwindCSS` unless the user explicitly enables it.
 - ❌ Do NOT use any global state management library (Redux, Zustand, Jotai).
 - ❌ Do NOT duplicate schema definitions here — link to `ARCH_technical-specs.md`.
-- ❌ Do NOT write inline styles for layout. Use CSS classes defined in `index.css`.
+- ❌ Do NOT write inline styles for layout. Use CSS classes defined in `index.css`. *(Currently violated across the Analytics/Telemetry surfaces — see §10.6.)*
 - ❌ Do NOT use `!important` except inside `@media print` blocks.
-- ❌ Do NOT silently swallow Supabase errors — always surface them to the UI.
+- ❌ Do NOT silently swallow Supabase errors — always surface them to the UI. *(Currently violated in `AssessmentWizard.tsx`'s telemetry RPC call, which only `console.warn`s on failure — see registry note in `ARCH_documentation-governance.md`.)*

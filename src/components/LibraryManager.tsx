@@ -239,6 +239,9 @@ export const LibraryManager: React.FC = () => {
   const [editType, setEditType] = useState<ModuleType>('COMPE');
   const [editDomainCode, setEditDomainCode] = useState<string>('');
   const [editDescription, setEditDescription] = useState('');
+  const [editDomainWeight, setEditDomainWeight] = useState<number>(1.0);
+  const [editScaleMin, setEditScaleMin] = useState<number>(1);
+  const [editScaleMax, setEditScaleMax] = useState<number>(4);
 
   // --- Keywords ---
   const [keywords, setKeywords] = useState<string[]>([]);
@@ -341,6 +344,9 @@ export const LibraryManager: React.FC = () => {
     setEditType(mod.type);
     setEditDomainCode(mod.domain_code ?? '');
     setEditDescription(mod.description ?? '');
+    setEditDomainWeight(mod.domain_weight ?? 1.0);
+    setEditScaleMin(mod.scale_min ?? 1);
+    setEditScaleMax(mod.scale_max ?? 4);
     setKeywords(mod.smart_keywords ?? []);
     setShowInactive(false);
     await fetchQuestions(moduleId);
@@ -395,6 +401,26 @@ export const LibraryManager: React.FC = () => {
   const handleDescriptionBlur = async () => {
     if (editDescription !== selectedModule?.description) {
       await patchModule({ description: editDescription });
+    }
+  };
+
+  const handleDomainWeightBlur = async () => {
+    const clamped = Number.isFinite(editDomainWeight) && editDomainWeight > 0 ? editDomainWeight : 1.0;
+    setEditDomainWeight(clamped);
+    if (clamped !== (selectedModule?.domain_weight ?? 1.0)) {
+      await patchModule({ domain_weight: clamped });
+    }
+  };
+
+  const handleScaleRangeBlur = async () => {
+    if (!Number.isFinite(editScaleMin) || !Number.isFinite(editScaleMax) || editScaleMax <= editScaleMin) {
+      showToast('Scale Max must be greater than Scale Min', 'error');
+      setEditScaleMin(selectedModule?.scale_min ?? 1);
+      setEditScaleMax(selectedModule?.scale_max ?? 4);
+      return;
+    }
+    if (editScaleMin !== (selectedModule?.scale_min ?? 1) || editScaleMax !== (selectedModule?.scale_max ?? 4)) {
+      await patchModule({ scale_min: editScaleMin, scale_max: editScaleMax });
     }
   };
 
@@ -701,6 +727,52 @@ export const LibraryManager: React.FC = () => {
                         <Unlock size={13} /> Lock Module
                       </button>
                     )}
+                  </div>
+
+                  {/* Domain Scoring Configuration (V6 — w_m weight + scale range for cross-instrument normalization) */}
+                  <div className="module-meta-row" style={{ marginTop: '0.625rem' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                      Domain Weight
+                      <input
+                        type="number"
+                        step="0.1"
+                        min="0.1"
+                        className="module-type-select"
+                        style={{ width: '80px' }}
+                        value={editDomainWeight}
+                        disabled={selectedModule.is_locked}
+                        onChange={e => setEditDomainWeight(parseFloat(e.target.value))}
+                        onBlur={handleDomainWeightBlur}
+                        title="How strongly this module's score counts toward its domain, relative to other modules in the same domain (w_m)"
+                      />
+                    </label>
+
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                      Scale Min–Max
+                      <input
+                        type="number"
+                        step="1"
+                        className="module-type-select"
+                        style={{ width: '60px' }}
+                        value={editScaleMin}
+                        disabled={selectedModule.is_locked}
+                        onChange={e => setEditScaleMin(parseFloat(e.target.value))}
+                        onBlur={handleScaleRangeBlur}
+                        title="Theoretical minimum raw score for this instrument (used for min-max normalization)"
+                      />
+                      <span>–</span>
+                      <input
+                        type="number"
+                        step="1"
+                        className="module-type-select"
+                        style={{ width: '60px' }}
+                        value={editScaleMax}
+                        disabled={selectedModule.is_locked}
+                        onChange={e => setEditScaleMax(parseFloat(e.target.value))}
+                        onBlur={handleScaleRangeBlur}
+                        title="Theoretical maximum raw score for this instrument (used for min-max normalization)"
+                      />
+                    </label>
                   </div>
 
                   {/* Description */}

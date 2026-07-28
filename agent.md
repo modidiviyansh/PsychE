@@ -5,9 +5,11 @@
 
 ## 1. Project Identity
 - **Product:** PsychE — Student Counseling CRM
-- **Current Version:** 4.0.0
+- **Current Version:** 5.3.0 (in development) — 5.2.0 shipped 2026-07-27 (ETI engine, avoidance flags, automated cron)
 - **Platform:** Web — optimized for desktop/macOS
 - **Architecture Style:** Lightweight, Low-Overhead ("Antigravity")
+- **V5.3 / V6 note:** The Domain Scoring Engine was rewritten (`v6_domain_scoring_engine.sql`) to a formal second-order hierarchical factor model (item → module → domain, cross-instrument normalization via `scale_min`/`scale_max`, 4-axis Tension Matrix + dominant tension) per an external psychometrics consultant's spec. Run and verified in dev only — **still needs to run against production** via the Supabase SQL editor.
+- **V6.1 note:** A cross-engine data-loss bug was found and fixed (`v6_1_telemetry_upsert_fix.sql`) — `calculate_student_telemetry()` and `psyche_run_daily_batch()` share one table row per student/day, and whichever ran first on a fresh day was silently nulling the other's columns on `INSERT`. **This file has NOT been run against Supabase yet (dev or prod)** — must be applied before the next time either engine could hit a fresh day's `INSERT` for any student. See `ARCH_technical-specs.md` §8.5.
 
 ---
 
@@ -23,7 +25,10 @@
 | Icons | lucide-react |
 | Date Utils | date-fns |
 | CSV Parsing | papaparse |
+| Charts | recharts (Analytics page, radar/domain chart on Student Profile) |
 | DB Client | `src/lib/supabase.ts` — single exported `supabase` instance |
+
+> `express`, `body-parser`, `cors`, `dotenv` in `package.json` are **not** frontend deps — they belong to the standalone `webhook.js` import server (registered in `docs/ARCH_documentation-governance.md` §3), not the Vite app.
 
 ---
 
@@ -40,13 +45,17 @@
 | `PsychE_Counseling_Logs` | Session/interaction records |
 | `PsychE_Student_Tags` | Junction: student ↔ system tag |
 | `PsychE_Responses` | Individual scored question responses per log |
+| `PsychE_Domains` | V5 — 7 psychological domains (BHV/SOC/COG/EMH/FAM/CAR/SEL) for scoring |
+| `PsychE_Student_Telemetry` | V5 — daily snapshot: domain scores, tensions, archetype, ETI, engine_status |
+
+> **V5 schema caveat:** `PsychE_Domains` and `PsychE_Student_Telemetry` (plus `Modules.domain_code`/`domain_weight`) were added via `v5_migration.sql` and `v5_analytics_migration.sql`, **not** merged into `Master Schema/psyche_v3_master_schema.sql`. Treat both migration files as canonical for V5 objects until a formal merge is approved. See `ARCH_technical-specs.md` §8.
 
 ---
 
 ## 4. Security
 - PIN access screen wraps entire app (glassmorphic `PinScreen` component)
 - Valid PINs stored in `PsychE_Settings.allowed_pins` (comma-separated string)
-- App version string in `PsychE_Settings.app_version`
+- App version string in `PsychE_Settings.app_version` — **known gap:** not currently read or edited by any UI (`Settings.tsx` only exposes `daily_session_capacity`; `Navbar.tsx` does not display it despite `GUIDE_developer.md` §8 describing it). Flagged for a future fix, not touched in this sweep.
 
 ---
 
@@ -65,8 +74,8 @@
 | `/bulk-schedule` | BulkSchedule |
 | `/analytics` | Analytics |
 | `/report` | ReportExport (Print View) |
-
-> **V3 routes to add:** `/library` (LibraryManager CMS), `/tags` (GlobalTagManager)
+| `/library` | LibraryManager (Assessment CMS, master-detail) |
+| `/tags` | GlobalTagManager (System Tags, data grid) |
 
 ---
 
