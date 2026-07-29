@@ -6,6 +6,15 @@ Not a living doc; not registered in the governance registry. Supersede or delete
 > **⚠ Read this first:** every number below comes from **10 dev students with obviously seeded names**
 > (Alice Johnson, John Doe, Michael Smith, Sarah Williams…). It describes **engine behaviour**, not clinical
 > reality, and **cannot validate any model**. See §6 for what would be needed.
+>
+> **⚠ Production differs — do not read §1/§2 counts as production.** Verified against prod 2026-07-29:
+> COG/EMH/FAM 30 active items each, **BHV 4**, **CAR 1**, **SOC 1**, **SEL 0**. So in production only SEL
+> is fully uninstrumented — the `High Vulnerability Support Priority` archetype and the `BHV−EMH` tension
+> axis *are* reachable there, unlike in dev. Only the `CAR−SEL` axis remains structurally dead, and
+> `data_completeness` caps at 6/7 rather than 4/7. CAR and SOC at a single item each are placeholder-grade:
+> a domain score derived from one item should not be read as a measurement.
+> Production student counts as of that date: 11 students · 8 with a composite · 0 with an RSI
+> (3 `no_composite_score`, 5 `insufficient_confidence`, 3 `insufficient_cohort_size`).
 
 ---
 
