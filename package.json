@@ -10,7 +10,9 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "dev:v2": "vite --mode staging --port 5174 --strictPort",
+    "build:v2": "tsc -b && vite build --mode staging"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.105.4",
