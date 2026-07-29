@@ -214,6 +214,13 @@ Overdue   → Completed (user can still complete from Kanban overdue column)
 | `confidence_multiplier` | NUMERIC | | 0–1, ramps up over the warming period |
 | `eti_score` | NUMERIC | | ETI Engine output, 0–100 — see §8.3 |
 | `eti_data` | JSONB | | Full ETI breakdown (ratios + avoidance flag) — see §8.3 |
+| `composite_score` | NUMERIC | | V7 — Composite Score, 0–100 **distress-direction** (higher = more load) — see §8.6 |
+| `composite_confidence` | NUMERIC | | V7 — `CF_C`, 0–1: fraction of the 4 sub-components available |
+| `composite_data` | JSONB | | V7 — sub-component breakdown (`dd`/`wd`/`ts`/`ed`) for transparency |
+| `rsi_score` | NUMERIC | | V7 — cohort percentile rank, 0–100 **wellness-facing** (higher = better than more peers) — see §8.7 |
+| `rsi_data` | JSONB | | V7 — cohort context (`cohort_level`, `cohort_size`) or `reason` when null |
+
+> **Direction convention warning:** `composite_score` is distress-direction (higher = worse) while `rsi_score` and `metrics_payload.domain_scores` are wellness-direction (higher = better). This is intentional per the consultant spec, but it is the single easiest thing to get backwards when writing new UI — check §8.6/§8.7 before rendering either.
 
 ---
 
@@ -275,7 +282,7 @@ import { supabase } from '../lib/supabase';
 | Route Path | Page Component | Notes |
 |---|---|---|
 | `/` | `Dashboard` | Mission Control, Bento Grid |
-| `/student/:studentId` | `StudentProfile` | `:studentId` = `PsychE_Students.id` (UUID) |
+| `/student/:studentId` | `StudentProfile` | ⚠ `:studentId` = `PsychE_Students.student_id` (the **human-readable** ID, e.g. `STU-3923-234`) — **not** the UUID `id`, despite the param name. `StudentProfile.tsx` queries `.eq('student_id', studentId)`. Passing a UUID here renders "Student not found." |
 | `/add-log` | `AddLog` | Capacity-aware date picker |
 | `/add-student` | `AddStudent` | Inline student creation |
 | `/edit-student/:id` | `AddStudent` | Edit mode via `:id` param |
@@ -354,9 +361,9 @@ import { supabase } from '../lib/supabase';
 
 ---
 
-## 8. V5 Analytics & Telemetry Engines
+## 8. V5–V7 Analytics & Telemetry Engines
 
-> Two independent scoring engines write into the same `PsychE_Student_Telemetry` row per student per day. Both are pure SQL (`plpgsql` functions), invoked nightly by `psyche_run_daily_batch()` via the GitHub Actions cron in `.github/workflows/daily_analytics.yml` (21:30 UTC / 03:00 IST, `workflow_dispatch` also available for manual runs). No client-side recomputation exists — the frontend only reads the latest row.
+> Multiple scoring engines write into the same `PsychE_Student_Telemetry` row per student per day. All are pure SQL (`plpgsql` functions). Domain Scoring (§8.1) is triggered client-side on assessment submission; everything else — Cold-Start Gatekeeper, ETI, Composite Score, RSI — runs inside `psyche_run_daily_batch()`, invoked nightly by the GitHub Actions cron in `.github/workflows/daily_analytics.yml` (21:30 UTC / 03:00 IST, `workflow_dispatch` also available for manual runs). No client-side recomputation exists for these — the frontend only reads the latest row.
 
 ### 8.1 Domain Scoring Engine (V6 rewrite — `calculate_student_telemetry`, `v6_domain_scoring_engine.sql`)
 
@@ -414,10 +421,65 @@ Engagement Trajectory Index — scores the trailing `p_window_days` (default 30)
 - **Avoidance flag:** `No_Show / (Completed + No_Show) >= 0.5` → chronic no-show pattern, surfaced as a red banner on the Student Profile ETI card.
 - Returns `NULL` eti (with `reason: 'no_activity'`) if zero logs exist in the window — distinct from `cold_start` (§8.2), which looks at all-time activity, not just the window.
 
-### 8.4 Daily Batch (`psyche_run_daily_batch`)
-Loops every row in `PsychE_Students`, computes §8.2 + §8.3 for each, and **upserts** into `PsychE_Student_Telemetry` — same calendar day (UTC) updates in place, a new day inserts a new row. This cron does **not** call §8.1's `calculate_student_telemetry` — that RPC is instead triggered client-side, synchronously, from `AssessmentWizard.tsx` right after a completed assessment's responses are inserted. Net effect: domain scores update the instant a counselor finishes scoring a student; `engine_status`/ETI update once nightly.
+### 8.4 Daily Batch (`psyche_run_daily_batch`) — now two passes (V7)
+Loops every row in `PsychE_Students` **twice**, in one transaction:
+- **Pass 1** (per-student, independent): computes §8.2 (Cold-Start Gatekeeper) + §8.3 (ETI), upserts them (carry-forward per §8.5), then immediately computes §8.6 (Composite Score) from that same row's now-current `metrics_payload` + `eti_score` and updates it in.
+- **Pass 2** (per-cohort, runs only once Pass 1 has fully looped over every student): computes §8.7 (RSI) by ranking Pass 1's just-committed Composite Scores within each cohort.
+
+Because both passes execute inside the same function call, they share one transaction — Pass 2's reads correctly see every Pass 1 write for the day without needing an explicit commit between them.
+
+This cron does **not** call §8.1's `calculate_student_telemetry` — that RPC is instead triggered client-side, synchronously, from `AssessmentWizard.tsx` right after a completed assessment's responses are inserted. Net effect: domain scores update the instant a counselor finishes scoring a student; `engine_status`/ETI/Composite Score/RSI all update once nightly.
 
 ### 8.5 Cross-Engine Upsert Fix (V6.1 — `v6_1_telemetry_upsert_fix.sql`)
 Both engines above write the **same row** (keyed on `student_uuid` + calendar day), and each `UPDATE` branch correctly touches only its own columns. But each `INSERT` branch (taken when no row exists yet for that student today) originally set **only its own columns**, leaving the other engine's columns `NULL` on the new row. Whichever engine ran first each day "won" the `INSERT`; in production the nightly cron always ran before same-day assessments, so this stayed latent until `calculate_student_telemetry()` was invoked manually (V6 backfill) on students with no row yet for the day — which silently zeroed their `engine_status`/`eti_score`/`eti_data` for that day.
 
 **Fix:** both functions now look up the student's most recent prior row (any day, via `ORDER BY calculated_at DESC LIMIT 1`) before an `INSERT`, and carry the *other* engine's last-known values forward instead of leaving them `NULL`. A metric that has genuinely never been computed for a student (e.g. true cold-start) still correctly stays `NULL` — carry-forward only ever copies a value that existed before. Superseded, not appended: `v6_1_telemetry_upsert_fix.sql` reissues `CREATE OR REPLACE` for both functions; their scoring math is unchanged.
+
+### 8.6 Composite Score (V7 — `psyche_compute_composite_score`, `v7_composite_rsi_engine.sql`)
+
+> Designed with the same external psychometrics consultant as §8.1. Originally specified with a fifth term (Relative Deficit, derived from RSI) — caught as a genuine circular dependency during design (Composite Score would need RSI, RSI needs Composite Score) and resolved by removing that term entirely. Composite Score is now **strictly self-contained per student**, with zero dependency on any other student's data — this is what makes it safe to compute in Pass 1, independently, before RSI (Pass 2) ranks the results.
+
+Self-contained, criterion-referenced (measures the student against a fixed standard, never against peers), 0–100 distress-direction (higher = more overall load). Four sub-components, each independently nullable, combined with the same weighted-renormalization pattern used throughout this engine (Domain Scores §8.1, this section):
+
+| Component | Formula | Captures |
+|---|---|---|
+| `DD` — Domain Distress | `avg(100 - DS_k)` over non-null domains | Breadth: moderate difficulty spread across many domains |
+| `WD` — Worst Domain Deficit | `max(100 - DS_k)` over non-null domains | A single acute domain in crisis — prevents `DD` from diluting it away |
+| `TS` — Tension Severity | `\|dominant_tension.value\| × 100` | Profile inconsistency (the masking/divergence signal from §8.1's Tension Matrix) |
+| `ED` — Engagement Deficit | `100 - eti_score` | Disengagement from support, independent of what the assessment scores say |
+
+`C = (0.44·DD·λ_DD + 0.28·WD·λ_WD + 0.17·TS·λ_TS + 0.11·ED·λ_ED) / (0.44λ_DD + 0.28λ_WD + 0.17λ_TS + 0.11λ_ED)`, where each `λ_x ∈ {0,1}` flags whether that component could be computed at all. `C = NULL` iff all four `λ` are 0 (in practice, only `engine_status = cold_start`, since any completed assessment yields at least `DD`/`WD`) — no separate cold-start check needed, it falls out of the same missing-data logic.
+
+**⚠ Weights are provisional.** `0.44/0.28/0.17/0.11` are the consultant's engineering judgment, not a validated clinical weighting study — treat as configurable once real outcome data exists to calibrate against, not as fixed truth.
+
+**Confidence:** `CF_C = (λ_DD + λ_WD + λ_TS + λ_ED) / 4`, stored alongside the score (`composite_confidence`) and shown in the UI — a score built from all 4 components should read as more trustworthy than one built from 2.
+
+**⚠ Evidential floor (V7.1) — `CF_C ≥ 0.5` to display.** The V7.0 spec asserted that `C = NULL` only occurs at `engine_status = cold_start`. **That assertion is false**, and was disproven in dev verification: ETI is derived from `PsychE_Counseling_Logs`, not assessments, so a cold-start student with zero assessment data can still have `λ_ED = 1`. A real case produced `ED = 100` (two No_Shows → ETI 0) → `C = 100.0` at `CF_C = 0.25`, rendering as **"High Load / priority escalation"** on no clinical evidence; the inverse also occurred (an ETI-only student at `ED = 24.4` ranked **"Relatively Thriving"**).
+
+Resolution is a gate on confidence, **not** on the formula — the math is structurally sound, the missing piece was an evidential minimum:
+- `CF_C ≥ 0.5` (≥ 2 of 4 components) → display `C` as a primary number with its load band.
+- `CF_C < 0.5` → display **"Insufficient Assessment Data"** instead. The sub-component breakdown is still shown for context.
+- `composite_score` is **still computed and stored unchanged at any confidence** — only presentation is gated (frontend) and RSI eligibility is gated (§8.7). Lowering the threshold later needs no recomputation.
+- Threshold lives in two places that must stay in sync: `MIN_COMPOSITE_CONFIDENCE` (`src/types/index.ts`) and `c_min_confidence` (`v7_1_confidence_gating.sql`).
+
+**Thresholds (UI):** 0–25 Low Load · 26–50 Moderate Load · 51–75 Elevated Load · 76–100 High Load.
+
+### 8.7 RSI — Relative Scoring Index (V7 — `psyche_compute_rsi_for_student`, `v7_composite_rsi_engine.sql`)
+
+Norm-referenced percentile rank of Composite Score within a cohort — the only metric in the entire stack that is explicitly comparative (meaningless in isolation, only relative to a defined peer group). Strictly downstream of §8.6: reads already-committed `composite_score` values, never contributes to them.
+
+`RSI_i = 100 × |{j ∈ cohort : C_j > C_i}| / (n - 1)` — higher RSI = relatively better than more peers (note: counts peers with a *higher* — i.e. worse — distress-direction `C`, so this is deliberately kept in wellness-facing orientation for display).
+
+**Cohort fallback chain** (first level with `n ≥ 8` wins): same `PsychE_Students.course` → same grade level → whole school. **⚠ Grade level is parsed from `course` via `split_part(course, ' - ', 1)`, assuming the format `"Class N - <suffix>"`** (e.g. `"Class 10 - Section A"`, `"Class 11 - PCM"`) — confirmed against all student data at implementation time, but `course` is freeform `VARCHAR(100)` with no enforced structure. If future data doesn't follow this convention, the grade-level fallback silently groups incorrectly (not destructively — just an inaccurate cohort, not corrupted data).
+
+**`n ≥ 8` floor is a hard requirement, not a preference** — below it, percentile buckets are too coarse (a cohort of 3 can only ever show 0/50/100) and a single outlier distorts the whole scale. Below 8 even at the whole-school level, RSI returns `null` with `reason: 'insufficient_cohort_size'`.
+
+**⚠ Confidence eligibility (V7.1).** Only students meeting the §8.6 floor (`composite_confidence ≥ 0.5`) are eligible for RSI — both as ranked subjects **and** as cohort members. A percentile is only meaningful if the ranked values are commensurable; ranking a 1-component score against a 4-component score is not a valid comparison. A student below the floor returns `null` with `reason: 'insufficient_confidence'`.
+
+> **Expected consequence:** tightening cohort membership makes `n ≥ 8` harder to reach, so RSI legitimately goes `null` more often early on. In the dev dataset this drops eligible students from 8 to 3, meaning *every* student correctly returns `insufficient_cohort_size` until more students are actually assessed. That is the metric working as designed, not a regression.
+
+**Triple null-dependency:** RSI requires (a) the target student's own Composite Score to be non-null, (b) their `CF_C ≥ 0.5`, and (c) enough *other* cohort members also clearing both bars to reach `n ≥ 8`. A school's very first cohort will show `null` RSI for everyone until enough students individually cross into scored status — this is a real, unavoidable property of any norm-referenced metric, not a bug.
+
+**Must never be read in isolation** — a cohort where every student is struggling still produces a full 0–100 RSI spread (the math always finds someone "relatively better"). Always pair with Composite Score / Domain Scores for absolute context; the UI enforces this by always rendering both cards together.
+
+**Thresholds (UI):** 75–100 Relatively Thriving · 40–74 Within Normal Range · 15–39 Below Peer Norm · 0–14 Significant Outlier · `null` Insufficient Data.

@@ -363,8 +363,47 @@ function computeModuleScore(responses: Array<{score_value: number, is_reverse_sc
 - **Profile Consistency summary** (indigo-tinted, `Compass` icon): always shown first when `dominant_tension` is present, naming which of the 4 axes has the largest divergence and its magnitude in points (`value × 100`). Its supporting sentence changes based on whether that dominant value also crosses the 0.3 threshold — "a single overall score would mislead here" above threshold, vs. "profile is currently internally consistent" below it. This card can appear even when no individual axis is flagged — it's informative on its own per the consultant model, not just a rollup of the flagged list below it.
 - **Flagged axis cards** (amber, `AlertTriangle` icon): one per axis exceeding the threshold, each showing the point divergence and a **sign-aware interpretation sentence** (positive vs. negative direction have distinct clinical meanings — e.g. `COG_EMH > 0` reads as a masking pattern, `< 0` reads as a possible learning/attention pattern; see `ARCH_technical-specs.md` §8.1 for all 4 axes' interpretations). Never collapse to `Math.abs()` before choosing the message — sign is the whole point.
 
-### 9.6 Known deviation — inline styles
-Sections 9.1–9.5 above are implemented almost entirely with inline `style={{ }}` objects rather than the CSS classes mandated by Forbidden Pattern #4 below. This is a real, current violation of that rule — not a doc gap. Flagged here rather than silently retrofitted; a future pass should extract these into `index.css` utility classes if the pattern keeps expanding.
+### 9.6 Composite Score & RSI Cards (V7)
+Rendered as a **side-by-side pair** (`col-span-6` each) at the bottom of the Telemetry tab. Formulas and thresholds owned by `ARCH_technical-specs.md` §8.6/§8.7 — this entry owns presentation only.
+
+- **Composite Score** (`Gauge` icon): hidden entirely when `composite_score` is null (cold-start). Large score + a colour-coded load-band pill (Low `--accent-green` / Moderate indigo / Elevated `--accent-amber` / High `--accent-red`), an explicit confidence line ("Confidence: N% (X/4 components available)"), and a 4-cell sub-component breakdown (DD / WD / TS / ED) so a counselor can see *which* term is driving the score. Unavailable sub-components render `—`, never `0` — a missing component and a zero component mean very different things.
+  - **⚠ Confidence gate (V7.1):** when `composite_confidence < MIN_COMPOSITE_CONFIDENCE` (0.5, imported from `src/types`), the score **and its load-band pill are replaced** by an "Insufficient Assessment Data" panel — never rendered as a number with a colour band. This is a safety requirement, not a stylistic one: an ETI-only composite is an engagement signal, and presenting it as "High Load / priority escalation" is a clinical false positive (see `ARCH_technical-specs.md` §8.6 for the case that prompted this). The confidence line and sub-component grid still render below it for context.
+- **RSI** (`Users` icon): renders in one of two states. When computable, shows the percentile + a standing-band pill, plus a cohort context line naming the fallback level actually used ("Ranked against N peers at the class section / grade level / whole school level"). When null, renders a **plain-language explanation instead of a number** — distinguishing three cases: `insufficient_cohort_size` (not enough eligible peers, includes the actual count), `insufficient_confidence` (V7.1 — this student's own profile is too thin to rank), and `no_composite_score`. Never render `0` or `—` for an uncomputable RSI; a percentile of 0 is a real, alarming value and must never be confusable with missing data.
+- **Pairing is deliberate, not cosmetic:** RSI is purely relative and will always produce a 0–100 spread even in a uniformly struggling cohort. The RSI card's own body text restates this ("Always read alongside the Composite Score above"), and the two cards must stay adjacent — do not surface RSI anywhere Composite Score isn't also visible.
+
+### 9.7 Telemetry tab structure (V7.2 redesign)
+
+The tab was rebuilt from score-first cards to **evidence-first** cards: each panel answers *what happened,
+why, how sure are we, and what to look at next* before it shows a number. Presentational components live in
+`src/components/TelemetryPanel.tsx` (pure, props-in, no Supabase); all fetching stays in `StudentProfile.tsx`
+per §2.1.
+
+Fixed vertical order — do not reorder, the sequence is the argument:
+
+1. **Evidence Coverage strip** (`col-span-12`) — engine status, domains measured, composite components, last
+   assessment, plus an amber banner naming any domain with **no assessment items at all**. This is first
+   because every number below is conditional on it.
+2. **Archetype row** — label + the caveat that it is derived only from measured domains.
+3. **Domain Profile** (`col-span-7`) + **Cross-Domain Tension** (`col-span-5`).
+4. **Engagement (ETI)** (`col-span-12`) — score, driver sentence, ratio bars, 30-day trend.
+5. **Composite Load** (`col-span-6`) + **Relative Standing** (`col-span-6`).
+
+**Colour rule for all charts.** One accent hue (`#5b8af5`) carries every data mark; neutral grey carries
+context (peer bars, empty rows); the status colours are **reserved** for load/coverage bands only. A
+two-hue categorical palette was tested and rejected — `#5b8af5`↔`#9b59f5` scored a normal-vision ΔE of
+**13.3**, below the 15 floor, so identity is carried by position, labels, and mark type rather than hue.
+Do not introduce a categorical palette here without re-validating.
+
+**"No items" vs "not assessed" must stay distinct.** In both the domain list and the tension strip, a
+domain with no instrument reads `no items` and a domain that simply hasn't been assessed for this student
+reads `not assessed`. Collapsing these into one empty state hides a structural gap as if it were a
+per-student gap.
+
+**Trend and delta degrade gracefully.** Under two snapshots the sparkline is replaced by a message naming
+how many exist; deltas render as "no change" rather than a fabricated zero.
+
+### 9.8 Known deviation — inline styles
+Sections 9.1–9.7 above are implemented almost entirely with inline `style={{ }}` objects rather than the CSS classes mandated by Forbidden Pattern #4 below. This is a real, current violation of that rule — not a doc gap. Flagged here rather than silently retrofitted; a future pass should extract these into `index.css` utility classes if the pattern keeps expanding.
 
 ---
 

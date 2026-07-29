@@ -207,6 +207,33 @@ export interface TelemetryTensions {
   dominant_tension?: DominantTension | null;
 }
 
+/** V7 — Composite Score sub-component breakdown, for transparency/debugging */
+export interface CompositeData {
+  composite_score: number | null;
+  composite_confidence: number;
+  dd: number | null;  // Domain Distress
+  wd: number | null;  // Worst Domain Deficit
+  ts: number | null;  // Tension Severity
+  ed: number | null;  // Engagement Deficit
+}
+
+/** V7 — RSI cohort context, or the reason it couldn't be computed */
+export interface RsiData {
+  rsi: number | null;
+  cohort_level?: 'course' | 'grade' | 'school' | null;
+  cohort_size?: number | null;
+  /** `insufficient_confidence` added in V7.1 — student scored below the CF_C floor */
+  reason?: 'no_composite_score' | 'insufficient_cohort_size' | 'insufficient_confidence';
+  confidence?: number | null;
+}
+
+/**
+ * V7.1 — minimum CF_C for Composite Score to be shown as a primary number,
+ * and for a student to be eligible for RSI ranking. Must stay in sync with
+ * `c_min_confidence` in v7_1_confidence_gating.sql.
+ */
+export const MIN_COMPOSITE_CONFIDENCE = 0.5;
+
 export interface TelemetryPayload {
   student_uuid?: string;
   session_count: number;
@@ -226,6 +253,13 @@ export interface TelemetryPayload {
     avoidance_flag: boolean;
     avoidance_ratio: number;
   };
+  /** V7 — self-contained per-student composite (0-100, distress-direction) */
+  composite_score?: number | null;
+  composite_confidence?: number | null;
+  composite_data?: CompositeData;
+  /** V7 — cohort percentile rank of composite_score (higher = relatively better) */
+  rsi_score?: number | null;
+  rsi_data?: RsiData;
 }
 
 export interface StudentTelemetry {

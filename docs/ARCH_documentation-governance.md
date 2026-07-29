@@ -128,8 +128,37 @@
 | **Owns** | `CREATE OR REPLACE` for `calculate_student_telemetry()` and `psyche_run_daily_batch()` — same scoring math as `v6_domain_scoring_engine.sql`/`v5_analytics_migration.sql`, fixes only the `INSERT` branch of each to carry forward the *other* engine's last-known values instead of nulling them. See `ARCH_technical-specs.md` §8.5 for the full bug writeup. |
 | **Must NOT Contain** | Application/UI code |
 | **Do NOT modify** unless a formal schema migration is approved by the human |
-| **Status** | ⚠ Written 2026-07-28, **not yet executed against Supabase** — the SQL editor run is still needed. Today's data-loss symptom was separately repaired by calling the (still old/buggy) `psyche_run_daily_batch()` RPC directly, which happened to succeed via its `UPDATE` branch since today's rows already existed from the V6 backfill. That workaround does **not** fix the underlying bug for future days — this file must still be run to prevent recurrence next time either engine hits an `INSERT` first. |
+| **Status** | ✅ Run against production Supabase 2026-07-28 (confirmed by the human), alongside `v6_domain_scoring_engine.sql`. Its `psyche_run_daily_batch()` definition is superseded by `v7_composite_rsi_engine.sql`; its `calculate_student_telemetry()` carry-forward fix remains the live version and is **not** re-issued by V7. |
 | **Last Updated** | 2026-07-28 (bug found and fixed same-session as the V6 backfill) |
+
+---
+
+### `v7_composite_rsi_engine.sql`
+| Attribute | Value |
+|---|---|
+| **Path** | `/v7_composite_rsi_engine.sql` (root) |
+| **Load Trigger** | When touching Composite Score or RSI — their formulas, weights, cohort logic, or the two-pass cron structure |
+| **Owns** | `ALTER TABLE "PsychE_Student_Telemetry"` adding `composite_score`/`composite_confidence`/`composite_data`/`rsi_score`/`rsi_data`; `psyche_compute_composite_score()` (pure, per-student, §8.6); `psyche_compute_rsi_for_student()` (cohort percentile with course→grade→school fallback, §8.7); and a `CREATE OR REPLACE` of `psyche_run_daily_batch()` restructured into two passes |
+| **Must NOT Contain** | Application/UI code |
+| **Do NOT modify** unless a formal schema migration is approved by the human |
+| **⚠ Run order** | Must run **after** `v6_domain_scoring_engine.sql` and `v6_1_telemetry_upsert_fix.sql`. It re-issues `psyche_run_daily_batch()` with the V6.1 carry-forward fix already folded in, but does **not** re-issue `calculate_student_telemetry()` — so V6.1 must have been applied first or that function reverts to its buggy form. |
+| **Status** | ✅ Run against **dev** Supabase 2026-07-29 and verified end-to-end (composite math hand-checked against the formula for 3 students; RSI percentiles, tie handling, and course→grade→school fallback all confirmed correct). Not yet run in prod. Its `psyche_compute_rsi_for_student()` is superseded by `v7_1_confidence_gating.sql`. |
+| **Last Updated** | 2026-07-29 (V7 Composite Score + RSI, per external psychometrics consultant spec; resolves the C↔RSI circular dependency caught in design review) |
+
+---
+
+### `v7_1_confidence_gating.sql`
+| Attribute | Value |
+|---|---|
+| **Path** | `/v7_1_confidence_gating.sql` (root) |
+| **Load Trigger** | When changing the `CF_C` evidential floor, or debugging why a student has a composite score but no RSI |
+| **Owns** | `CREATE OR REPLACE` of `psyche_compute_rsi_for_student()` only — adds the `composite_confidence >= 0.5` eligibility floor (applied to the ranked student, the cohort-size count, and the worse-than count) and the new `insufficient_confidence` reason code. Composite Score math, ETI, Domain Scoring, and `psyche_run_daily_batch()` are untouched. |
+| **Must NOT Contain** | Application/UI code |
+| **Do NOT modify** unless a formal schema migration is approved by the human |
+| **⚠ Run order** | Must run **after** `v7_composite_rsi_engine.sql`. |
+| **⚠ Paired constant** | The `0.5` floor exists in two places and must stay in sync: `c_min_confidence` here, and `MIN_COMPOSITE_CONFIDENCE` in `src/types/index.ts` (which drives the frontend display gate). |
+| **Status** | ⚠ Written 2026-07-29, **not yet executed against Supabase** (dev or prod). The frontend half of this gate is live and verified in dev; the RSI half needs this file to run. |
+| **Last Updated** | 2026-07-29 (fixes a clinical false-positive found in V7 dev verification — see `ARCH_technical-specs.md` §8.6) |
 
 ---
 
@@ -186,6 +215,7 @@
 | `src/components/GlobalTagManager.tsx` | **V3** System Tag management — Data Grid |
 | `src/components/AssessmentWizard.tsx` | Step-through assessment administration UI |
 | `src/components/LiveAssessmentModal.tsx` | Modal for in-session assessment scoring |
+| `src/components/TelemetryPanel.tsx` | **V7.2** Presentational components for the Telemetry Analytics tab (evidence strip, domain profile, tension strip, engagement panel, composite contribution, RSI panel). Pure props-in — no Supabase, no page state. See `GUIDE_developer.md` §9.7 |
 
 ### Pages
 
@@ -264,6 +294,7 @@ If a rule appears in more than one doc file:
 | `src/components/GlobalTagManager.tsx` | Component | V3 |
 | `src/components/AssessmentWizard.tsx` | Component | V2 |
 | `src/components/LiveAssessmentModal.tsx` | Component | V3 |
+| `src/components/TelemetryPanel.tsx` | Component — presentational | V7.2 |
 | `src/pages/Dashboard.tsx` | Page | V1 |
 | `src/pages/StudentProfile.tsx` | Page | V1 |
 | `src/pages/AddLog.tsx` | Page | V1 |
@@ -280,7 +311,9 @@ If a rule appears in more than one doc file:
 | `v5_analytics_migration.sql` | Schema — DDL (unmerged) | V5 |
 | `.github/workflows/daily_analytics.yml` | Ops — CI cron | V5 |
 | `v6_domain_scoring_engine.sql` | Schema — DDL + function rewrite (unmerged, run in dev) | V6 |
-| `v6_1_telemetry_upsert_fix.sql` | Schema — bugfix (unmerged, not yet run) | V6.1 |
+| `v6_1_telemetry_upsert_fix.sql` | Schema — bugfix (unmerged, run in prod) | V6.1 |
+| `v7_composite_rsi_engine.sql` | Schema — DDL + Composite/RSI engines (unmerged, run in dev) | V7 |
+| `v7_1_confidence_gating.sql` | Schema — RSI confidence floor (unmerged, not yet run) | V7.1 |
 | `webhook.js` | Code — Auxiliary server (not built app) | Pre-V3, undated |
 | `fix_rls.sql` | Schema — Historical patch (superseded) | Pre-V3, undated |
 | `refactor.py` | Code — One-off script (already applied) | V5 |

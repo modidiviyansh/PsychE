@@ -1,13 +1,41 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Edit2, Calendar, Phone, Mail, BookOpen, ArrowLeft, Eye, EyeOff, User, BrainCircuit, ChevronDown, ChevronUp, FileDown, X, Tag, Plus, Activity, Sparkles, AlertTriangle, Compass } from 'lucide-react';
+import { Edit2, Calendar, Phone, Mail, BookOpen, ArrowLeft, Eye, EyeOff, User, BrainCircuit, ChevronDown, ChevronUp, FileDown, X, Tag, Plus, Activity, Sparkles, AlertTriangle } from 'lucide-react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, Tooltip } from 'recharts';
 import { supabase } from '../lib/supabase';
 import { AssessmentWizard } from '../components/AssessmentWizard';
 import type { TelemetryPayload } from '../types';
+import { MIN_COMPOSITE_CONFIDENCE } from '../types';
+import {
+  EvidenceStrip, DomainProfile, TensionStrip, EngagementPanel,
+  CompositeContribution, RsiPanel
+} from '../components/TelemetryPanel';
+import type { TensionAxis } from '../components/TelemetryPanel';
 import type { EngineStatus } from '../analytics/ColdStart';
 import { calculateConfidenceMultiplier } from '../analytics/ColdStart';
+
+/** One prior telemetry snapshot, for trend + delta */
+interface TelemetryHistoryRow {
+  date: string;
+  eti: number | null;
+  composite: number | null;
+}
+
+interface CohortInfo {
+  eligiblePeers: number;
+  totalPeers: number;
+  peerScores: number[];
+}
+
+/** Shape of the nested telemetry rows returned by the peer cohort query */
+interface PeerTelemetryRow {
+  composite_score: number | null;
+  composite_confidence: number | null;
+  calculated_at: string;
+}
+
+const DOMAIN_CODES = ['BHV', 'SOC', 'COG', 'EMH', 'FAM', 'CAR', 'SEL'];
+const RSI_MIN_COHORT = 8;
 
 const container = {
   hidden: { opacity: 0 },
@@ -51,6 +79,11 @@ export const StudentProfile: React.FC = () => {
   const [telemetry, setTelemetry] = useState<TelemetryPayload | null>(null);
   const [engineStatus, setEngineStatus] = useState<EngineStatus | null>(null);
   const [activeTab, setActiveTab] = useState<'profile' | 'telemetry'>('profile');
+
+  // V7.2 — supporting evidence for the redesigned telemetry tab
+  const [telemetryHistory, setTelemetryHistory] = useState<TelemetryHistoryRow[]>([]);
+  const [cohort, setCohort] = useState<CohortInfo>({ eligiblePeers: 0, totalPeers: 0, peerScores: [] });
+  const [instrumented, setInstrumented] = useState<Record<string, boolean>>({});
 
   // Date Range Report States
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
@@ -99,7 +132,12 @@ export const StudentProfile: React.FC = () => {
             engine_status: telemetryRow.engine_status,
             confidence_multiplier: telemetryRow.confidence_multiplier,
             eti_score: telemetryRow.eti_score,
-            eti_data: telemetryRow.eti_data
+            eti_data: telemetryRow.eti_data,
+            composite_score: telemetryRow.composite_score,
+            composite_confidence: telemetryRow.composite_confidence,
+            composite_data: telemetryRow.composite_data,
+            rsi_score: telemetryRow.rsi_score,
+            rsi_data: telemetryRow.rsi_data
           };
           setTelemetry(payload as TelemetryPayload);
         }
@@ -108,6 +146,74 @@ export const StudentProfile: React.FC = () => {
           .rpc('psyche_get_engine_status', { p_student_uuid: studentData.id });
         if (!engineError && engineStatusStr) {
           setEngineStatus(engineStatusStr as EngineStatus);
+        }
+
+        // --- V7.2 supporting evidence -------------------------------------
+        // (a) 30-day snapshot history for the trend line and deltas
+        const since = new Date();
+        since.setDate(since.getDate() - 30);
+        const { data: histRows, error: histError } = await supabase
+          .from('PsychE_Student_Telemetry')
+          .select('calculated_at, eti_score, composite_score')
+          .eq('student_uuid', studentData.id)
+          .gte('calculated_at', since.toISOString())
+          .order('calculated_at', { ascending: true });
+        if (histError) console.warn('Telemetry history unavailable:', histError.message);
+        else setTelemetryHistory((histRows ?? []).map(r => ({
+          date: new Date(r.calculated_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }),
+          eti: r.eti_score,
+          composite: r.composite_score
+        })));
+
+        // (b) Cohort readiness — mirrors the SQL fallback (course → grade → school).
+        //     Recomputed client-side purely for display; the authoritative RSI
+        //     still comes from psyche_compute_rsi_for_student().
+        const grade = (studentData.course ?? '').split(' - ')[0];
+        const { data: peerRows, error: peerError } = await supabase
+          .from('PsychE_Students')
+          .select('id, course, PsychE_Student_Telemetry(composite_score, composite_confidence, calculated_at)')
+          .neq('id', studentData.id);
+        if (peerError) console.warn('Cohort data unavailable:', peerError.message);
+        else {
+          const today = new Date().toISOString().slice(0, 10);
+          const latestOf = (rows: PeerTelemetryRow[] | null) => (rows ?? [])
+            .filter(r => (r.calculated_at ?? '').slice(0, 10) === today)
+            .sort((a, b) => (b.calculated_at ?? '').localeCompare(a.calculated_at ?? ''))[0];
+
+          const scoped = (level: 'course' | 'grade' | 'school') => (peerRows ?? []).filter(p =>
+            level === 'course' ? p.course === studentData.course
+              : level === 'grade' ? (p.course ?? '').split(' - ')[0] === grade
+                : true);
+
+          const eligibleIn = (level: 'course' | 'grade' | 'school') => scoped(level)
+            .map(p => latestOf(p.PsychE_Student_Telemetry as PeerTelemetryRow[]))
+            .filter(t => t?.composite_score != null && (t?.composite_confidence ?? 0) >= MIN_COMPOSITE_CONFIDENCE);
+
+          let eligible = eligibleIn('course');
+          for (const level of ['grade', 'school'] as const) {
+            if (eligible.length + 1 >= RSI_MIN_COHORT) break;
+            eligible = eligibleIn(level);
+          }
+          setCohort({
+            eligiblePeers: eligible.length,
+            totalPeers: (peerRows ?? []).length,
+            peerScores: eligible.map(t => t.composite_score as number)
+          });
+        }
+
+        // (c) Which domains have any active assessment item at all
+        const { data: modRows, error: modError } = await supabase
+          .from('PsychE_Modules')
+          .select('domain_code, PsychE_Questions(is_active)');
+        if (modError) console.warn('Instrument coverage unavailable:', modError.message);
+        else {
+          const cover: Record<string, boolean> = {};
+          for (const code of DOMAIN_CODES) cover[code] = false;
+          for (const m of modRows ?? []) {
+            const active = ((m.PsychE_Questions as { is_active: boolean }[]) ?? []).some(q => q.is_active);
+            if (m.domain_code && active) cover[m.domain_code] = true;
+          }
+          setInstrumented(cover);
         }
 
         // Fetch Tags
@@ -415,340 +521,164 @@ export const StudentProfile: React.FC = () => {
         {/* This block is only shown in the telemetry tab! */}
         </>
         )}
-        {activeTab === 'telemetry' && (
-        <>
-        <motion.div variants={item} className="bento-card col-span-12">
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.75rem' }}>
-            <div>
-              <h3 className="text-h3" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <BrainCircuit size={20} color="var(--color-primary)" />
-                Clinical Telemetry Profile
-              </h3>
-              <p className="text-muted" style={{ fontSize: '0.8rem', marginTop: '2px' }}>
-                90-Day Rolling Multi-Domain Diagnostic Assessment
-              </p>
-            </div>
+        {activeTab === 'telemetry' && (() => {
+          // ---- derived evidence -------------------------------------------
+          const ds = (telemetry?.domain_scores ?? {}) as Record<string, number | null>;
+          const measuredDomains = DOMAIN_CODES.filter(c => ds[c] != null).length;
+          const instrumentedDomains = DOMAIN_CODES.filter(c => instrumented[c]).length;
+          const uninstrumented = DOMAIN_CODES.filter(c => instrumented[c] === false);
 
-            {telemetry && telemetry.data_completeness > 0 && (
-              <div style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '0.4rem',
-                padding: '0.35rem 0.85rem',
-                borderRadius: 'var(--radius-full)',
-                backgroundColor: 'rgba(99, 102, 241, 0.15)',
-                border: '1px solid rgba(99, 102, 241, 0.35)',
-                color: '#818cf8',
-                fontSize: '0.8125rem',
-                fontWeight: 600
-              }}>
-                <Sparkles size={14} />
-                {telemetry.archetype}
-              </div>
-            )}
-          </div>
+          const completedLogs = logs.filter(l => l.session_status === 'Completed');
+          const lastAssessment = completedLogs.length > 0 ? completedLogs[0].session_date : null;
 
-          {(() => {
-            if (engineStatus === 'cold_start' || !engineStatus) {
-              return (
-                <div style={{
-                  padding: '2.5rem 1.5rem',
-                  textAlign: 'center',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '0.75rem',
-                  backgroundColor: 'rgba(0, 0, 0, 0.2)',
-                  borderRadius: 'var(--radius-md)',
-                  border: '1px dashed var(--color-border)'
-                }}>
-                  <div style={{ width: 48, height: 48, borderRadius: '50%', backgroundColor: 'rgba(255, 255, 255, 0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-text-muted)' }}>
-                    <Activity size={24} />
-                  </div>
-                  <div>
-                    <p style={{ fontWeight: 600, fontSize: '0.925rem', color: 'var(--color-text)', marginBottom: '0.25rem' }}>
-                      No assessments yet. Schedule first session to begin tracking.
-                    </p>
-                  </div>
-                  <button
-                    className="btn btn-primary"
-                    style={{ marginTop: '0.5rem', padding: '0.5rem 1.25rem', fontSize: '0.8125rem' }}
-                    onClick={() => navigate(`/add-log?student=${student.id}`)}
-                  >
-                    + Schedule Baseline Assessment
-                  </button>
-                </div>
-              );
+          const etiSeries = telemetryHistory.filter(h => h.eti != null);
+          const compSeries = telemetryHistory.filter(h => h.composite != null);
+          const etiDelta = etiSeries.length >= 2
+            ? (etiSeries[etiSeries.length - 1].eti as number) - (etiSeries[etiSeries.length - 2].eti as number) : null;
+          const compDelta = compSeries.length >= 2
+            ? (compSeries[compSeries.length - 1].composite as number) - (compSeries[compSeries.length - 2].composite as number) : null;
+
+          const etiData = telemetry?.eti_data;
+          const confidence = telemetry?.composite_confidence ?? 0;
+
+          let confidenceMultiplier = 1;
+          if (engineStatus === 'warming') {
+            let daysSinceFirst = 0;
+            if (completedLogs.length > 0) {
+              const firstLogDate = new Date(completedLogs[completedLogs.length - 1].session_date);
+              daysSinceFirst = Math.max(0, Math.floor((Date.now() - firstLogDate.getTime()) / (1000 * 3600 * 24)));
             }
-
-            if (engineStatus === 'assessment_only') {
-              return (
-                <div style={{
-                  padding: '2.5rem 1.5rem',
-                  textAlign: 'center',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '0.75rem',
-                  backgroundColor: 'rgba(0, 0, 0, 0.2)',
-                  borderRadius: 'var(--radius-md)',
-                  border: '1px dashed var(--color-border)'
-                }}>
-                  <div style={{ width: 48, height: 48, borderRadius: '50%', backgroundColor: 'rgba(255, 255, 255, 0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-text-muted)' }}>
-                    <Activity size={24} />
-                  </div>
-                  <div>
-                    <p style={{ fontWeight: 600, fontSize: '0.925rem', color: 'var(--color-text)', marginBottom: '0.25rem' }}>
-                      No formal assessment completed — scores unavailable.
-                    </p>
-                  </div>
-                </div>
-              );
-            }
-
-            const isWarming = engineStatus === 'warming';
-            const isStale = engineStatus === 'stale';
-
-            let confidenceMultiplier = 1;
-            if (isWarming) {
-              const completedLogs = logs.filter(l => l.session_status === 'Completed');
-              const completedSessionsCount = completedLogs.length;
-              let daysSinceFirst = 0;
-              if (completedLogs.length > 0) {
-                const firstLogDate = new Date(completedLogs[completedLogs.length - 1].session_date);
-                daysSinceFirst = Math.max(0, Math.floor((Date.now() - firstLogDate.getTime()) / (1000 * 3600 * 24)));
-              }
-              confidenceMultiplier = calculateConfidenceMultiplier(daysSinceFirst, completedSessionsCount);
-            }
-
-            const domainLabelMap: Record<string, string> = {
-              BHV: 'Behavioural (BHV)',
-              SOC: 'Social (SOC)',
-              COG: 'Cognitive (COG)',
-              EMH: 'Emotional (EMH)',
-              FAM: 'Family (FAM)',
-              CAR: 'Career (CAR)',
-              SEL: 'Self & Identity (SEL)'
-            };
-
-            const radarData = Object.entries(telemetry?.domain_scores || {}).map(([code, val]) => ({
-              domain: domainLabelMap[code] || code,
-              score: val !== null ? Math.round((val as number) * 100) : 0,
-              fullMark: 100,
-              isEmpty: val === null || val === 0
-            }));
-
-            const CustomTick = ({ payload, x, y, textAnchor, stroke, radius }: any) => {
-              const dataPoint = radarData.find(d => d.domain === payload.value);
-              const isGrey = isWarming && dataPoint?.isEmpty;
-              return (
-                <text radius={radius} stroke={stroke} x={x} y={y} className="recharts-text recharts-polar-angle-axis-tick-value" textAnchor={textAnchor}>
-                  <tspan x={x} dy="0em" fill={isGrey ? 'rgba(255,255,255,0.2)' : 'var(--color-text-muted)'} fontSize={11} fontWeight={500}>{payload.value}</tspan>
-                </text>
-              );
-            };
-
-            return (
-              <div style={{ position: 'relative', width: '100%' }}>
-                {isStale && (
-                  <div style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', border: '1px solid #ef4444', color: '#ef4444', padding: '0.75rem 1rem', borderRadius: 'var(--radius-md)', marginBottom: '1rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <AlertTriangle size={18} /> Data is expired (90+ days old) — schedule a re-assessment.
-                  </div>
-                )}
-                
-                {isWarming && (
-                  <div style={{ position: 'absolute', top: -10, right: 0, zIndex: 10, backgroundColor: 'rgba(245, 158, 11, 0.15)', border: '1px solid rgba(245, 158, 11, 0.3)', color: '#f59e0b', padding: '0.25rem 0.75rem', borderRadius: 'var(--radius-full)', fontSize: '0.75rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                    <Activity size={14} /> Building profile — {Math.round(confidenceMultiplier * 100)}% Confidence
-                  </div>
-                )}
-                
-                <div style={{ height: 260, width: '100%', position: 'relative' }}>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <RadarChart cx="50%" cy="50%" outerRadius="75%" data={radarData}>
-                      <PolarGrid stroke="rgba(255, 255, 255, 0.12)" />
-                      <PolarAngleAxis dataKey="domain" tick={<CustomTick />} />
-                      <PolarRadiusAxis angle={30} domain={[0, 100]} stroke="rgba(255, 255, 255, 0.15)" tick={{ fontSize: 9, fill: 'var(--color-text-muted)' }} />
-                      <Radar name="Domain Score (%)" dataKey="score" stroke="#818cf8" fill="#6366f1" fillOpacity={0.35} />
-                      <Tooltip contentStyle={{ backgroundColor: '#181b21', borderColor: 'rgba(255,255,255,0.15)', borderRadius: '8px', color: '#fff', fontSize: '12px' }} formatter={(value: any) => [`${value}%`, 'Score']} />
-                    </RadarChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-            );
-          })()}
-        </motion.div>
-
-        {/* ETI Data Card */}
-        {(() => {
-          const etiData = typeof telemetry?.eti_data === 'string' 
-            ? JSON.parse(telemetry.eti_data) 
-            : telemetry?.eti_data || (telemetry as any)?.etiData;
-
-          const etiScore = etiData?.eti ?? telemetry?.eti_score;
-
-          if (engineStatus === 'cold_start' || etiScore == null) {
-            return null;
+            confidenceMultiplier = calculateConfidenceMultiplier(daysSinceFirst, completedLogs.length);
           }
 
-          const avoidanceFlag = etiData?.avoidance_flag ?? etiData?.avoidanceFlag ?? false;
-          const attendanceRatio = etiData?.attendance_ratio ?? etiData?.attendanceRatio ?? 0;
-          const followThroughRatio = etiData?.follow_through_ratio ?? etiData?.followThroughRatio ?? 0;
-          const recencyFactor = etiData?.recency_factor ?? etiData?.recencyFactor ?? 0;
-          const avoidanceRatio = etiData?.avoidance_ratio ?? etiData?.avoidanceRatio ?? 0;
-
-          return (
-            <motion.div variants={item} className="bento-card col-span-12">
-              <h3 className="text-h3 mb-4 flex items-center gap-2">
-                <Activity size={18} className="text-primary" /> Engagement Trajectory Index (ETI)
-              </h3>
-              
-              {avoidanceFlag && (
-                <div style={{
-                  padding: '1rem 1.25rem',
-                  borderRadius: 'var(--radius-md)',
-                  backgroundColor: 'rgba(239, 68, 68, 0.12)',
-                  border: '1px solid rgba(239, 68, 68, 0.3)',
-                  color: '#ef4444',
-                  fontSize: '0.875rem',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.75rem',
-                  marginBottom: '1.25rem'
-                }}>
-                  <AlertTriangle size={20} style={{ flexShrink: 0 }} />
-                  <span style={{ fontWeight: 600 }}>Chronic No-Show Pattern ({avoidanceRatio}% avoidance)</span>
-                </div>
-              )}
-
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '1.25rem' }}>
-                <div style={{ backgroundColor: 'var(--color-bg)', padding: '1.25rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)' }}>
-                  <p className="text-muted" style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>Attendance Ratio</p>
-                  <p style={{ fontSize: '1.5rem', fontWeight: 700 }}>{attendanceRatio}%</p>
-                </div>
-                <div style={{ backgroundColor: 'var(--color-bg)', padding: '1.25rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)' }}>
-                  <p className="text-muted" style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>Follow-Through</p>
-                  <p style={{ fontSize: '1.5rem', fontWeight: 700 }}>{followThroughRatio}%</p>
-                </div>
-                <div style={{ backgroundColor: 'var(--color-bg)', padding: '1.25rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)' }}>
-                  <p className="text-muted" style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>Recency Factor</p>
-                  <p style={{ fontSize: '1.5rem', fontWeight: 700 }}>{recencyFactor}%</p>
-                </div>
-              </div>
-              
-              <div style={{ backgroundColor: 'rgba(99, 102, 241, 0.1)', padding: '1.5rem', borderRadius: 'var(--radius-md)', border: '1px solid rgba(99, 102, 241, 0.3)', textAlign: 'center' }}>
-                <p style={{ fontSize: '0.875rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: '#818cf8', marginBottom: '0.5rem' }}>Master ETI Score</p>
-                <p style={{ fontSize: '2.5rem', fontWeight: 700, color: 'var(--color-text)', lineHeight: 1 }}>
-                  {etiScore !== null ? etiScore : 'N/A'}<span style={{ fontSize: '1.25rem', color: 'var(--color-text-muted)', fontWeight: 500 }}> / 100</span>
-                </p>
-              </div>
-            </motion.div>
-          );
-        })()}
-
-        {/* Cross-Domain Tension (Full-Width Card in Telemetry Tab) */}
-        {telemetry && telemetry.data_completeness > 0 && (() => {
-          const TENSION_THRESHOLD = 0.3; // matches consultant's |tension| > 0.3 significance threshold
-
-          // Each axis: [value, positive-direction interpretation, negative-direction interpretation]
-          const axes: { key: string; label: string; value: number | null | undefined; positive: string; negative: string }[] = [
+          const t = telemetry?.tensions;
+          const axes: TensionAxis[] = [
             {
-              key: 'COG_EMH',
-              label: 'Cognitive / Emotional (Masking Axis)',
-              value: telemetry.tensions?.T_cognitive_emotional,
-              positive: 'Possible masking pattern — cognitively intact, but emotionally struggling. High-functioning students showing this pattern are the least likely to be flagged by academic monitoring alone.',
-              negative: 'Cognitively strained relative to emotional state — possibly a learning-difficulty or attention-related pattern rather than a mental-health concern; consider a different referral pathway.'
+              key: 'COG_EMH', label: 'Masking axis', left: 'Emotional', right: 'Cognitive',
+              value: t?.T_cognitive_emotional, available: !!(instrumented.COG && instrumented.EMH),
+              positive: 'Cognitively intact but emotionally struggling — a masking pattern. Students like this are least likely to be caught by academic monitoring alone.',
+              negative: 'Cognitively strained relative to emotional state — consider a learning or attention pathway rather than a mental-health one.'
             },
             {
-              key: 'SOC_FAM',
-              label: 'Social / Family (Escape-Valve Axis)',
-              value: telemetry.tensions?.T_social_home,
-              positive: 'Finds more stability among peers than at home — home environment may be a source of stress the student is compensating for socially.',
-              negative: 'More stable at home than socially — possible peer/social stressor despite a supportive home environment.'
+              key: 'SOC_FAM', label: 'Escape-valve axis', left: 'Family', right: 'Social',
+              value: t?.T_social_home, available: !!(instrumented.SOC && instrumented.FAM),
+              positive: 'Finds more stability among peers than at home — home may be the stressor being compensated for.',
+              negative: 'More stable at home than socially — a peer or social stressor despite a supportive home.'
             },
             {
-              key: 'CAR_SEL',
-              label: 'Career / Identity (Authenticity Axis)',
-              value: telemetry.tensions?.T_career_identity,
-              positive: 'Career direction is clearer than self-identity coherence — worth checking whether this path is self-chosen or externally imposed.',
-              negative: 'Strong sense of self without a clear career direction — may simply reflect a developmental stage rather than a concern.'
+              key: 'CAR_SEL', label: 'Authenticity axis', left: 'Self & Identity', right: 'Career',
+              value: t?.T_career_identity, available: !!(instrumented.CAR && instrumented.SEL),
+              positive: 'Career direction clearer than identity coherence — worth checking whether the path is self-chosen or imposed.',
+              negative: 'Strong sense of self without a settled direction — often developmental rather than a concern.'
             },
             {
-              key: 'BHV_EMH',
-              label: 'Behavioral / Emotional (Internalizing vs. Externalizing)',
-              value: telemetry.tensions?.T_behavioral_emotional,
-              positive: 'Possible internalizing pattern — behavior appears regulated outwardly, but emotional distress is present beneath the surface.',
-              negative: 'Possible externalizing pattern — behavioral regulation is strained relative to emotional state (acting out).'
+              key: 'BHV_EMH', label: 'Internalizing axis', left: 'Emotional', right: 'Behavioural',
+              value: t?.T_behavioral_emotional, available: !!(instrumented.BHV && instrumented.EMH),
+              positive: 'Outwardly regulated but distressed underneath — an internalizing pattern.',
+              negative: 'Behavioural regulation strained relative to emotional state — an externalizing pattern.'
             }
           ];
 
-          const flagged = axes.filter(a => a.value != null && Math.abs(a.value) > TENSION_THRESHOLD);
-          const dominant = telemetry.tensions?.dominant_tension;
-
-          if (flagged.length === 0 && !dominant) return null;
-
           return (
-            <motion.div variants={item} className="bento-card col-span-12">
-              <h3 className="text-h3 mb-4 flex items-center gap-2" style={{ color: '#f59e0b' }}>
-                <AlertTriangle size={18} /> Cross-Domain Tension
-              </h3>
+          <>
+          <EvidenceStrip
+            engineStatus={engineStatus ?? undefined}
+            measuredDomains={measuredDomains}
+            instrumentedDomains={instrumentedDomains}
+            totalDomains={DOMAIN_CODES.length}
+            compositeConfidence={telemetry?.composite_confidence}
+            lastAssessment={lastAssessment}
+            uninstrumentedDomains={uninstrumented}
+          />
 
-              {dominant && (
-                <div style={{
-                  padding: '0.875rem 1.25rem',
-                  borderRadius: 'var(--radius-md)',
-                  backgroundColor: 'rgba(99, 102, 241, 0.1)',
-                  border: '1px solid rgba(99, 102, 241, 0.3)',
-                  color: '#818cf8',
-                  fontSize: '0.8125rem',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.75rem',
-                  marginBottom: '1rem'
-                }}>
-                  <Compass size={18} style={{ flexShrink: 0 }} />
-                  <span>
-                    <strong>Profile Consistency:</strong> dominant divergence on the{' '}
-                    <strong>{axes.find(a => a.key === dominant.pair)?.label ?? dominant.pair}</strong> axis
-                    {' '}(T* = {Math.round(dominant.value * 100)} pts). {Math.abs(dominant.value) > TENSION_THRESHOLD
-                      ? 'A single overall score would actively mislead here — read the domain breakdown, not just the average.'
-                      : 'Below the significance threshold — this student\'s profile is currently internally consistent.'}
+          {(engineStatus === 'cold_start' || !engineStatus) ? (
+            <div className="bento-card col-span-12" style={{ textAlign: 'center', padding: '2.5rem 1.5rem' }}>
+              <div style={{ width: 48, height: 48, borderRadius: '50%', backgroundColor: 'rgba(255,255,255,0.05)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-text-muted)', marginBottom: '0.75rem' }}>
+                <Activity size={24} />
+              </div>
+              <p style={{ fontWeight: 600, fontSize: '0.925rem', marginBottom: '0.75rem' }}>
+                No assessments yet. Schedule a first session to begin tracking.
+              </p>
+              <button className="btn btn-primary" style={{ padding: '0.5rem 1.25rem', fontSize: '0.8125rem' }}
+                onClick={() => navigate(`/add-log?student=${student.id}`)}>
+                + Schedule Baseline Assessment
+              </button>
+            </div>
+          ) : (
+            <>
+              {engineStatus === 'stale' && (
+                <div className="bento-card col-span-12" style={{ backgroundColor: 'rgba(239,68,68,0.1)', border: '1px solid #ef4444', color: '#ef4444', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <AlertTriangle size={18} /> Data is expired (90+ days old) — schedule a re-assessment.
+                </div>
+              )}
+
+              {telemetry?.archetype && telemetry.archetype !== 'Pending Baseline Assessment' && (
+                <div className="bento-card col-span-12" style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+                  <Sparkles size={16} style={{ color: '#818cf8' }} />
+                  <span style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--color-text-muted)', fontWeight: 700 }}>Archetype</span>
+                  <span style={{ fontSize: '0.925rem', fontWeight: 700 }}>{telemetry.archetype}</span>
+                  <span className="text-muted" style={{ fontSize: '0.75rem' }}>
+                    — derived from the highest-scoring measured domain; re-read it as domain coverage improves.
                   </span>
                 </div>
               )}
 
-              {flagged.length > 0 && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                  {flagged.map(a => (
-                    <div key={a.key} style={{
-                      padding: '1rem 1.25rem',
-                      borderRadius: 'var(--radius-md)',
-                      backgroundColor: 'rgba(245, 158, 11, 0.12)',
-                      border: '1px solid rgba(245, 158, 11, 0.3)',
-                      color: '#f59e0b',
-                      fontSize: '0.875rem',
-                      display: 'flex',
-                      alignItems: 'flex-start',
-                      gap: '0.75rem'
-                    }}>
-                      <AlertTriangle size={20} style={{ flexShrink: 0, marginTop: '2px' }} />
-                      <span>
-                        <span style={{ fontWeight: 600, display: 'block', marginBottom: '0.2rem' }}>
-                          {a.label} — {Math.round((a.value as number) * 100)} pt divergence
-                        </span>
-                        {(a.value as number) > 0 ? a.positive : a.negative}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </motion.div>
+              <DomainProfile
+                domainScores={ds}
+                instrumented={instrumented}
+                isWarming={engineStatus === 'warming'}
+                confidenceMultiplier={confidenceMultiplier}
+              />
+
+              <TensionStrip
+                axes={axes}
+                threshold={0.3}
+                dominantKey={telemetry?.tensions?.dominant_tension?.pair ?? null}
+              />
+
+              <EngagementPanel
+                eti={telemetry?.eti_score}
+                attendance={etiData?.attendance_ratio ?? 0}
+                followThrough={etiData?.follow_through_ratio ?? 0}
+                recency={etiData?.recency_factor ?? 0}
+                avoidanceFlag={etiData?.avoidance_flag}
+                avoidanceRatio={etiData?.avoidance_ratio}
+                history={telemetryHistory.map(h => ({ date: h.date, eti: h.eti }))}
+                delta={etiDelta}
+              />
+
+              <CompositeContribution
+                score={telemetry?.composite_score}
+                confidence={confidence}
+                minConfidence={MIN_COMPOSITE_CONFIDENCE}
+                parts={{
+                  dd: telemetry?.composite_data?.dd ?? null,
+                  wd: telemetry?.composite_data?.wd ?? null,
+                  ts: telemetry?.composite_data?.ts ?? null,
+                  ed: telemetry?.composite_data?.ed ?? null
+                }}
+                delta={compDelta}
+              />
+
+              <RsiPanel
+                rsi={telemetry?.rsi_score}
+                reason={telemetry?.rsi_data?.reason}
+                cohortLevel={telemetry?.rsi_data?.cohort_level}
+                cohortSize={telemetry?.rsi_data?.cohort_size}
+                eligiblePeers={cohort.eligiblePeers}
+                totalPeers={cohort.totalPeers}
+                requiredPeers={RSI_MIN_COHORT}
+                peerScores={cohort.peerScores}
+                studentComposite={telemetry?.composite_score}
+                confidence={confidence}
+                minConfidence={MIN_COMPOSITE_CONFIDENCE}
+              />
+            </>
+          )}
+          {/* End of Telemetry tab */}
+          </>
           );
         })()}
-        {/* End of Telemetry tab */}
-        </>
-        )}
         
         {/* History Timeline */}
         {activeTab === 'profile' && (
