@@ -483,3 +483,99 @@ Norm-referenced percentile rank of Composite Score within a cohort — the only 
 **Must never be read in isolation** — a cohort where every student is struggling still produces a full 0–100 RSI spread (the math always finds someone "relatively better"). Always pair with Composite Score / Domain Scores for absolute context; the UI enforces this by always rendering both cards together.
 
 **Thresholds (UI):** 75–100 Relatively Thriving · 40–74 Within Normal Range · 15–39 Below Peer Norm · 0–14 Significant Outlier · `null` Insufficient Data.
+
+---
+
+## 9. V8 Programme Health — school-wide analytics
+
+> The admin-facing counterpart to §8. Where §8 measures *a student*, §9 measures *the programme*.
+> Built for a **single-counsellor school with no plans to add another** — that constraint is load-bearing,
+> not incidental (see §9.2).
+
+### 9.1 The measured / modelled split — the governing rule
+
+Every figure on this dashboard is classified as one of two kinds, and they are never mixed:
+
+| Kind | Definition | Examples |
+|---|---|---|
+| **Measured** | Derived only from recorded facts — counts, dates, distributions | Gini, coverage, recency, throughput, integrity counters |
+| **Modelled** | Derived from `PsychE_Settings.daily_session_capacity`, a **counsellor-reported planning figure** | Feasibility, headroom, binding population, depth frontier |
+
+`psyche_programme_health()` returns **only measured quantities and never multiplies anything by capacity**.
+All capacity arithmetic happens client-side in `src/analytics/programmeHealth.ts`, computed at read time and
+never stored. Consequences, all deliberate:
+
+- Changing the capacity setting reflows every modelled figure instantly, with no stale values anywhere.
+- A wrong capacity setting can **mislabel headroom but can never corrupt the allocation picture.**
+- Modelled panels carry a visible assumption banner in the UI (`GUIDE_developer.md` §11).
+
+> ⚠ **No capacity history exists.** `daily_session_capacity` is a single scalar with no audit trail, so a
+> *retrospective* utilisation chart would apply today's value to periods when a different one was in force.
+> Historical utilisation is therefore not offered. Production ran at 7 until 2026-07-29, when it was
+> corrected to 15 after the counsellor reported a true rate of 15–20/day.
+
+### 9.2 Why single-counsellor changes the mathematics
+
+With one counsellor and a fixed ceiling, the classic queueing questions become either unanswerable or
+uninteresting, and the real question becomes allocation:
+
+- **Per-counsellor comparison is meaningless** and is deliberately not built. The Integrity panel instead
+  flags that `counselor_name` is free text — a single counsellor appearing under several spellings.
+- **Capacity cannot be increased**, so the dashboard never poses "do we need to hire". It asks *what service
+  level is achievable, and are the scarce slots aimed at the right students*.
+
+**Planning constants** (confirmed with the school 2026-07-29, held in `programmeHealth.ts` because no new
+columns were permitted): `WORKING_DAYS_PER_TERM = 100` (200/year over 2 terms), `TARGET_CONTACTS_PER_TERM = 1`,
+`PLANNED_ENROLMENT = 400`.
+
+### 9.3 Allocation Concentration (measured — the headline)
+
+Gini over sessions-per-student, reported as **two separate numbers that must never be merged**:
+
+- **Reach Gini** — across *all* enrolled students, including never-seen students as zeros. Measures whether the programme reaches people at all.
+- **Depth Gini** — across only students seen at least once. Measures how evenly attention is spread among those already in the system.
+
+Plus a Lorenz curve against the equality diagonal. Identity is carried by **line style** (solid = actual,
+dashed = equality) rather than hue alone, per the colour rule in `GUIDE_developer.md` §11.
+
+### 9.4 Capacity Feasibility (modelled)
+
+```
+capacityPerTerm  = capacityPerDay × workingDaysPerTerm
+universalCost    = studentCount × targetContactsPerTerm
+fullDepthDemand  = studentCount × observedDepth
+deepSupportCapacity = ⌊(capacityPerTerm − universalCost) / (observedDepth − target)⌋
+bindingPopulation   = ⌊capacityPerTerm / observedDepth⌋
+```
+
+**`observedDepth` self-calibrates**: it is the measured mean sessions per seen student once ≥ 5 students have
+been seen, falling back to a constant only before that. The UI states which was used. The panel shows the
+model at *current* enrolment and at *planned* enrolment side by side — the contrast between them is the
+point of the panel.
+
+### 9.5 Need–service alignment (measured, heavily caveated)
+
+Spearman rank correlation between composite score and sessions received, over students meeting
+`MIN_COMPOSITE_CONFIDENCE`.
+
+> ⚠ **Confounded by reverse causality.** Effective counselling *lowers* composite, so a student who was
+> helped now looks low-need. A weak or negative ρ is **not** evidence of poor triage on its own. Anchoring
+> properly requires need-at-referral (first assessment), which needs assessment volume the school does not
+> yet have.
+
+Suppressed entirely below `MIN_ALIGNMENT_N = 8` — the same floor as the RSI cohort rule, for the same
+reason: a rank correlation over 3–4 points is noise that reads like a finding.
+
+### 9.6 Throughput and bulk-entry detection
+
+Completed sessions per calendar day, with assumed capacity drawn only as a dashed reference line. **A day
+exceeding capacity is flagged as suspected backdated bulk entry, not clinical work** — verified in
+production, where the busiest day showed 22 sessions across only 6 active days. Until sessions are logged
+the day they happen, throughput figures are provisional and demonstrated-capacity self-calibration is not
+viable.
+
+### 9.7 What is deliberately absent
+
+- **No causal impact claim.** Students are referred at their worst moment, so pre/post improvement is partly regression to the mean. Any such figure would need a comparison strategy that does not yet exist.
+- **No time-to-service or arrival rate.** `created_at` records data-entry time, not referral time — 88% of production logs have `session_date − created_at ≈ 0`. Classical queueing (λ, μ, ρ, Little's Law) is therefore not honestly computable.
+- **No historical backlog.** `session_status` has no audit trail; only current state is knowable.

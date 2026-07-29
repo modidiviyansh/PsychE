@@ -1,257 +1,124 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { BarChart2, Users, AlertTriangle, FileText, TrendingUp, CalendarCheck, Percent, BookOpen } from 'lucide-react';
+import { BarChart2, AlertTriangle } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
+import { MIN_COMPOSITE_CONFIDENCE } from '../types';
+import {
+  allocationSummary, recencyBuckets, needAlignment, underServed,
+  throughputSummary, feasibility, depthFrontier,
+  WORKING_DAYS_PER_TERM, TARGET_CONTACTS_PER_TERM, PLANNED_ENROLMENT, FALLBACK_DEPTH
+} from '../analytics/programmeHealth';
+import type { ProgrammeHealthPayload } from '../analytics/programmeHealth';
+import {
+  AllocationPanel, CoveragePanel, FeasibilityPanel,
+  ThroughputPanel, TriagePanel, IntegrityPanel
+} from '../components/ProgrammeHealthPanel';
 
-const container = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.08 } } };
-const item = { hidden: { opacity: 0, y: 24 }, show: { opacity: 1, y: 0 } };
+const container = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.06 } } };
+const item = { hidden: { opacity: 0, y: 20 }, show: { opacity: 1, y: 0 } };
 
-interface MetricCardProps {
-  icon: React.ReactNode;
-  label: string;
-  value: string | number;
-  sub?: string;
-  accent?: string;
-  loading?: boolean;
-}
-
-const MetricCard: React.FC<MetricCardProps> = ({ icon, label, value, sub, accent = 'var(--color-primary)', loading }) => (
-  <motion.div
-    variants={item}
-    className="bento-card"
-    style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}
-  >
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-      <p style={{ fontSize: '0.75rem', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--color-text-muted)' }}>{label}</p>
-      <div style={{ padding: '0.5rem', borderRadius: '10px', backgroundColor: `${accent}18`, display: 'flex' }}>
-        <span style={{ color: accent }}>{icon}</span>
-      </div>
-    </div>
-    <div>
-      {loading ? (
-        <div style={{ height: '2.5rem', width: '5rem', borderRadius: '8px', backgroundColor: 'rgba(255,255,255,0.06)', animation: 'pulse 1.5s ease-in-out infinite' }} />
-      ) : (
-        <p style={{ fontSize: '2.25rem', fontWeight: 800, letterSpacing: '-0.04em', lineHeight: 1, color: 'var(--color-text)' }}>{value}</p>
-      )}
-      {sub && <p style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted)', marginTop: '0.375rem' }}>{sub}</p>}
-    </div>
-  </motion.div>
-);
-
-// Mini horizontal bar
-const MiniBar: React.FC<{ label: string; count: number; total: number; color: string }> = ({ label, count, total, color }) => {
-  const pct = total > 0 ? Math.round((count / total) * 100) : 0;
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span style={{ fontSize: '0.8125rem', fontWeight: 600 }}>{label}</span>
-        <span style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>{count} <span style={{ fontSize: '0.6875rem' }}>({pct}%)</span></span>
-      </div>
-      <div style={{ height: '6px', borderRadius: '3px', backgroundColor: 'rgba(255,255,255,0.07)', overflow: 'hidden' }}>
-        <motion.div
-          initial={{ width: 0 }}
-          animate={{ width: `${pct}%` }}
-          transition={{ duration: 0.7, ease: 'easeOut', delay: 0.3 }}
-          style={{ height: '100%', borderRadius: '3px', backgroundColor: color }}
-        />
-      </div>
-    </div>
-  );
-};
-
+/**
+ * Programme Health — the school-admin view.
+ *
+ * Deliberately split into MEASURED panels (allocation, recency, throughput,
+ * integrity) and MODELLED panels (feasibility). The school runs a single
+ * counsellor with no plans to add another, so capacity is fixed and the
+ * governing question is not "do we need more staff" but "is the fixed capacity
+ * being used, and aimed at the right students". See ARCH_technical-specs.md §9.
+ */
 export const Analytics: React.FC = () => {
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
-
-  // Metrics
-  const [totalStudents, setTotalStudents] = useState(0);
-  const [highRisk, setHighRisk] = useState(0);
-  const [mediumRisk, setMediumRisk] = useState(0);
-  const [lowRisk, setLowRisk] = useState(0);
-  const [totalLogs, setTotalLogs] = useState(0);
-  const [logsThisWeek, setLogsThisWeek] = useState(0);
-  const [scheduledSessions, setScheduledSessions] = useState(0);
-  const [noShowCount, setNoShowCount] = useState(0);
-  const [courseBreakdown, setCourseBreakdown] = useState<{ course: string; count: number }[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [data, setData] = useState<ProgrammeHealthPayload | null>(null);
 
   useEffect(() => {
-    document.title = 'UPsych : GCM Edition | Analytics';
-    fetchAll();
+    document.title = 'UPsych : GCM Edition | Programme Health';
+    (async () => {
+      setLoading(true);
+      const { data: payload, error: rpcError } = await supabase
+        .rpc('psyche_programme_health', { p_window_days: 180 });
+      if (rpcError) setError(rpcError.message);
+      else setData(payload as ProgrammeHealthPayload);
+      setLoading(false);
+    })();
   }, []);
 
-  async function fetchAll() {
-    setLoading(true);
-    try {
-      // Total students by risk level
-      const { data: students } = await supabase
-        .from('PsychE_Students')
-        .select('id, risk_level, course');
+  if (loading) return <div className="page-loading" style={{ padding: '2rem' }}>Loading programme health…</div>;
+  if (error) return (
+    <div className="bento-card" style={{ margin: '1rem 0', borderColor: 'rgba(245,91,91,0.4)' }}>
+      <h3 className="text-h3" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#f55b5b' }}>
+        <AlertTriangle size={18} /> Could not load programme health
+      </h3>
+      <p className="text-muted" style={{ fontSize: '0.85rem', marginTop: '0.5rem' }}>{error}</p>
+      <p className="text-muted" style={{ fontSize: '0.78rem', marginTop: '0.5rem' }}>
+        If this reads “function psyche_programme_health does not exist”, run
+        <code style={{ margin: '0 0.3rem' }}>v8_programme_health.sql</code> against this database.
+      </p>
+    </div>
+  );
+  if (!data) return null;
 
-      if (students) {
-        setTotalStudents(students.length);
-        setHighRisk(students.filter(s => s.risk_level === 'High').length);
-        setMediumRisk(students.filter(s => s.risk_level === 'Medium').length);
-        setLowRisk(students.filter(s => !s.risk_level || s.risk_level === 'Low').length);
+  const students = data.students ?? [];
+  const capacity = data.daily_session_capacity ?? 0;
 
-        // Course breakdown
-        const courseCounts: Record<string, number> = {};
-        students.forEach(s => {
-          const c = s.course || 'Unknown';
-          courseCounts[c] = (courseCounts[c] || 0) + 1;
-        });
-        const sorted = Object.entries(courseCounts)
-          .map(([course, count]) => ({ course, count }))
-          .sort((a, b) => b.count - a.count)
-          .slice(0, 6);
-        setCourseBreakdown(sorted);
-      }
+  // ---- MEASURED ----------------------------------------------------------
+  const alloc = allocationSummary(students);
+  const buckets = recencyBuckets(students);
+  const alignment = needAlignment(students, MIN_COMPOSITE_CONFIDENCE);
+  const triage = underServed(students, MIN_COMPOSITE_CONFIDENCE, 30);
+  const through = throughputSummary(data.daily_throughput ?? [], capacity);
 
-      // Total logs
-      const { count: logCount } = await supabase
-        .from('PsychE_Counseling_Logs')
-        .select('id', { count: 'exact', head: true });
-      if (logCount !== null) setTotalLogs(logCount);
+  // ---- MODELLED ----------------------------------------------------------
+  // Depth is taken from observed behaviour where there is enough of it, so the
+  // model self-calibrates rather than resting on a hard-coded guess.
+  const depthIsObserved = alloc.everSeen >= 5 && alloc.meanSessionsPerSeen != null;
+  const observedDepth = depthIsObserved ? (alloc.meanSessionsPerSeen as number) : FALLBACK_DEPTH;
 
-      // Logs this week
-      const weekAgo = new Date();
-      weekAgo.setDate(weekAgo.getDate() - 7);
-      const { count: weekCount } = await supabase
-        .from('PsychE_Counseling_Logs')
-        .select('id', { count: 'exact', head: true })
-        .gte('session_date', weekAgo.toISOString());
-      if (weekCount !== null) setLogsThisWeek(weekCount);
-
-      // Scheduled sessions
-      const { count: sched } = await supabase
-        .from('PsychE_Counseling_Logs')
-        .select('id', { count: 'exact', head: true })
-        .eq('session_status', 'Scheduled');
-      if (sched !== null) setScheduledSessions(sched);
-
-      // No-show count
-      const { count: noShow } = await supabase
-        .from('PsychE_Counseling_Logs')
-        .select('id', { count: 'exact', head: true })
-        .eq('session_status', 'No_Show');
-      if (noShow !== null) setNoShowCount(noShow);
-
-    } catch (err) {
-      console.error('Analytics fetch error:', err);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  const engagementRate = totalLogs > 0
-    ? Math.round(((totalLogs - noShowCount) / totalLogs) * 100)
-    : 0;
+  const modelFor = (n: number) => feasibility({
+    capacityPerDay: capacity,
+    workingDaysPerTerm: WORKING_DAYS_PER_TERM,
+    studentCount: n,
+    targetContactsPerTerm: TARGET_CONTACTS_PER_TERM,
+    observedDepth
+  });
+  const now = modelFor(Math.max(1, alloc.studentCount));
+  const projected = modelFor(PLANNED_ENROLMENT);
+  const frontier = depthFrontier(
+    projected.capacityPerTerm, PLANNED_ENROLMENT, TARGET_CONTACTS_PER_TERM,
+    [2, 4, Number(observedDepth.toFixed(1)), 9]
+  );
 
   return (
     <motion.div variants={container} initial="hidden" animate="show" style={{ padding: '1rem 0' }}>
-
-      {/* Header */}
-      <motion.div variants={item} style={{ marginBottom: '2rem' }}>
+      <motion.div variants={item} style={{ marginBottom: '1.5rem' }}>
         <h1 className="text-h1" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          <BarChart2 size={30} style={{ color: 'var(--color-primary)' }} /> Analytics
+          <BarChart2 size={30} style={{ color: 'var(--color-primary)' }} /> Programme Health
         </h1>
         <p className="text-muted" style={{ marginTop: '0.25rem' }}>
-          Aggregate overview of student and session data across the programme.
+          School-wide view of how counselling capacity is used and allocated · last {data.window_days} days
         </p>
       </motion.div>
 
-      {/* ── Row 1: Key Metrics ─────────────────────────────── */}
-      <div className="bento-grid" style={{ marginBottom: '1.5rem' }}>
-
-        {/* span 3 each = 4 cards on desktop, stacked on mobile */}
-        <div className="col-span-3">
-          <MetricCard icon={<Users size={18} />} label="Total Students" value={totalStudents} sub="Registered in system" loading={loading} />
-        </div>
-        <div className="col-span-3">
-          <MetricCard icon={<AlertTriangle size={18} />} label="High Risk" value={highRisk} sub={`${totalStudents ? Math.round((highRisk / totalStudents) * 100) : 0}% of total students`} accent="#ef4444" loading={loading} />
-        </div>
-        <div className="col-span-3">
-          <MetricCard icon={<FileText size={18} />} label="Total Sessions" value={totalLogs} sub="All counseling logs" accent="#8b5cf6" loading={loading} />
-        </div>
-        <div className="col-span-3">
-          <MetricCard icon={<TrendingUp size={18} />} label="Sessions This Week" value={logsThisWeek} sub="Last 7 days" accent="#4ade80" loading={loading} />
-        </div>
-      </div>
-
-      {/* ── Row 2: Detailed Bento Cards ─────────────────────── */}
       <div className="bento-grid">
+        <AllocationPanel a={alloc} />
+        <CoveragePanel buckets={buckets} total={alloc.studentCount} />
 
-        {/* Risk Breakdown */}
-        <motion.div variants={item} className="bento-card col-span-4">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1.5rem' }}>
-            <AlertTriangle size={18} style={{ color: '#f59e0b' }} />
-            <h3 className="text-h3" style={{ fontSize: '1rem', margin: 0 }}>Risk Distribution</h3>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            <MiniBar label="High Risk" count={highRisk} total={totalStudents} color="#ef4444" />
-            <MiniBar label="Medium Risk" count={mediumRisk} total={totalStudents} color="#f59e0b" />
-            <MiniBar label="Low / None" count={lowRisk} total={totalStudents} color="#4ade80" />
-          </div>
-          <div style={{ marginTop: '1.5rem', paddingTop: '1rem', borderTop: '1px solid rgba(255,255,255,0.07)', display: 'flex', gap: '1rem' }}>
-            {[
-              { label: 'High', count: highRisk, color: '#ef4444' },
-              { label: 'Medium', count: mediumRisk, color: '#f59e0b' },
-              { label: 'Low', count: lowRisk, color: '#4ade80' },
-            ].map(r => (
-              <div key={r.label} style={{ textAlign: 'center', flex: 1 }}>
-                <p style={{ fontSize: '1.5rem', fontWeight: 800, color: r.color, letterSpacing: '-0.03em' }}>{r.count}</p>
-                <p style={{ fontSize: '0.6875rem', color: 'var(--color-text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{r.label}</p>
-              </div>
-            ))}
-          </div>
-        </motion.div>
+        <FeasibilityPanel
+          now={now} projected={projected}
+          capacity={capacity} workingDays={WORKING_DAYS_PER_TERM}
+          currentN={alloc.studentCount} plannedN={PLANNED_ENROLMENT}
+          observedDepth={observedDepth} depthIsObserved={depthIsObserved}
+          frontier={frontier}
+        />
+        <ThroughputPanel daily={data.daily_throughput ?? []} summary={through} capacity={capacity} />
 
-        {/* Session Health */}
-        <motion.div variants={item} className="bento-card col-span-4">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1.5rem' }}>
-            <CalendarCheck size={18} style={{ color: 'var(--color-primary)' }} />
-            <h3 className="text-h3" style={{ fontSize: '1rem', margin: 0 }}>Session Health</h3>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            {[
-              { label: 'Scheduled (Pending)', value: scheduledSessions, color: 'var(--color-primary)' },
-              { label: 'No-Show', value: noShowCount, color: '#ef4444' },
-              { label: 'Completed', value: Math.max(0, totalLogs - scheduledSessions - noShowCount), color: '#4ade80' },
-            ].map(row => (
-              <div key={row.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.625rem 0.875rem', borderRadius: 'var(--radius-md)', backgroundColor: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
-                <span style={{ fontSize: '0.875rem', fontWeight: 600 }}>{row.label}</span>
-                <span style={{ fontSize: '1rem', fontWeight: 800, color: row.color }}>{loading ? '–' : row.value}</span>
-              </div>
-            ))}
-          </div>
-          {/* Engagement Rate */}
-          <div style={{ marginTop: '1.25rem', padding: '0.875rem', borderRadius: 'var(--radius-md)', background: 'linear-gradient(135deg, rgba(94,106,210,0.1), rgba(139,92,246,0.08))', border: '1px solid rgba(94,106,210,0.2)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
-              <Percent size={14} style={{ color: 'var(--color-primary)' }} />
-              <span style={{ fontSize: '0.75rem', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--color-text-muted)' }}>Engagement Rate</span>
-            </div>
-            <p style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--color-primary)', letterSpacing: '-0.04em' }}>{loading ? '–' : `${engagementRate}%`}</p>
-            <p style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>Sessions completed vs total logged</p>
-          </div>
-        </motion.div>
-
-        {/* Course Breakdown */}
-        <motion.div variants={item} className="bento-card col-span-4">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1.5rem' }}>
-            <BookOpen size={18} style={{ color: '#8b5cf6' }} />
-            <h3 className="text-h3" style={{ fontSize: '1rem', margin: 0 }}>Students by Course</h3>
-          </div>
-          {loading ? (
-            <p className="text-muted" style={{ fontSize: '0.875rem' }}>Loading…</p>
-          ) : courseBreakdown.length === 0 ? (
-            <p className="text-muted" style={{ fontSize: '0.875rem' }}>No course data yet.</p>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
-              {courseBreakdown.map(({ course, count }) => (
-                <MiniBar key={course} label={course} count={count} total={totalStudents} color="#8b5cf6" />
-              ))}
-            </div>
-          )}
-        </motion.div>
-
+        <TriagePanel
+          students={triage} alignment={alignment}
+          onOpen={(sid) => sid && navigate(`/student/${sid}`)}
+        />
+        <IntegrityPanel i={data.integrity} />
       </div>
     </motion.div>
   );

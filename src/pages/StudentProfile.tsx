@@ -239,6 +239,31 @@ export const StudentProfile: React.FC = () => {
     fetchStudentProfile();
   }, [studentId]);
 
+  /**
+   * Close (or cancel) a scheduled follow-up.
+   *
+   * Until V6 there was NO write path that set follow_up_status to anything but
+   * 'Pending' — so ETI's follow-through term, `1 - (pending / total_logs)`,
+   * could only ever fall. Every follow-up a counselor scheduled permanently
+   * depressed that student's ETI (and therefore Composite Score and RSI) with
+   * no way to earn it back by actually doing the follow-up. The SQL was
+   * correct — it counts only 'Pending' — so restoring this write path is the
+   * whole fix; no migration is needed.
+   */
+  const setFollowUpStatus = async (logId: string, status: 'Done' | 'Cancelled') => {
+    const previous = logs;
+    // optimistic — simple status toggle, reverted on error (GUIDE §3)
+    setLogs(prev => prev.map(l => (l.id === logId ? { ...l, follow_up_status: status } : l)));
+    const { error } = await supabase
+      .from('PsychE_Counseling_Logs')
+      .update({ follow_up_status: status })
+      .eq('id', logId);
+    if (error) {
+      setLogs(previous);
+      alert(`Could not update follow-up: ${error.message}`);
+    }
+  };
+
   const toggleExpand = (logId: string) => {
     setExpandedLogs(prev => {
       const next = new Set(prev);
@@ -827,12 +852,33 @@ export const StudentProfile: React.FC = () => {
                                 <span style={{ fontSize: '0.75rem', display: 'block', opacity: 0.8, marginBottom: '4px', letterSpacing: '0.05em' }}>RECOMMENDED ACTION</span>
                                 {item.recommended_action || 'None'}
                               </div>
-                              {item.follow_up_date && (
-                                <div className="print-action" style={{ flex: 1, backgroundColor: 'rgba(245, 158, 11, 0.1)', color: '#f59e0b', padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)', fontSize: '0.875rem', fontWeight: 500, minWidth: '200px' }}>
-                                  <span style={{ fontSize: '0.75rem', display: 'block', opacity: 0.8, marginBottom: '4px', letterSpacing: '0.05em' }}>FOLLOW-UP ({item.follow_up_status || 'Pending'})</span>
-                                  {new Date(item.follow_up_date).toLocaleDateString()}
-                                </div>
-                              )}
+                              {item.follow_up_date && (() => {
+                                const st = item.follow_up_status || 'Pending';
+                                const closed = st === 'Done' || st === 'Cancelled';
+                                const tone = st === 'Done' ? { bg: 'rgba(63, 201, 143, 0.1)', fg: 'var(--color-success)' }
+                                  : st === 'Cancelled' ? { bg: 'rgba(255,255,255,0.04)', fg: 'var(--color-text-muted)' }
+                                    : { bg: 'rgba(245, 158, 11, 0.1)', fg: '#f59e0b' };
+                                return (
+                                  <div className="print-action" style={{ flex: 1, backgroundColor: tone.bg, color: tone.fg, padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)', fontSize: '0.875rem', fontWeight: 500, minWidth: '200px' }}>
+                                    <span style={{ fontSize: '0.75rem', display: 'block', opacity: 0.8, marginBottom: '4px', letterSpacing: '0.05em' }}>FOLLOW-UP ({st})</span>
+                                    {new Date(item.follow_up_date).toLocaleDateString()}
+                                    {!closed && (
+                                      <div className="no-print" style={{ display: 'flex', gap: '0.4rem', marginTop: '0.5rem' }}>
+                                        <button
+                                          onClick={(e) => { e.stopPropagation(); setFollowUpStatus(item.id, 'Done'); }}
+                                          style={{ cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600, padding: '0.2rem 0.6rem', borderRadius: 'var(--radius-full)', border: '1px solid rgba(63,201,143,0.4)', background: 'rgba(63,201,143,0.12)', color: 'var(--color-success)' }}
+                                          title="Mark this follow-up as completed — restores the student's follow-through score"
+                                        >✓ Mark Done</button>
+                                        <button
+                                          onClick={(e) => { e.stopPropagation(); setFollowUpStatus(item.id, 'Cancelled'); }}
+                                          style={{ cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600, padding: '0.2rem 0.6rem', borderRadius: 'var(--radius-full)', border: '1px solid var(--color-border)', background: 'transparent', color: 'var(--color-text-muted)' }}
+                                          title="No longer required"
+                                        >Cancel</button>
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })()}
                             </div>
                           </motion.div>
                         )}

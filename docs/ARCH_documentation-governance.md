@@ -192,6 +192,13 @@
 ### `src/lib/capacity.ts`
 **Purpose:** V2 scheduling capacity utility functions. No UI code.
 
+### `src/analytics/programmeHealth.ts`
+**Purpose:** **V8** Pure analytics for the school-wide admin view — Gini/Lorenz, Spearman need-alignment,
+recency buckets, capacity feasibility and depth frontier. No Supabase, no React. Holds the planning
+constants (`WORKING_DAYS_PER_TERM`, `TARGET_CONTACTS_PER_TERM`, `PLANNED_ENROLMENT`, `MIN_ALIGNMENT_N`)
+because no new DB columns were permitted. Owns the measured/modelled boundary — see
+`ARCH_technical-specs.md` §9.1.
+
 ### `src/analytics/ColdStart.ts`
 **Purpose:** V5 — `EngineStatus` type + `calculateConfidenceMultiplier()`, the frontend-only display ramp for the "Building profile — N% Confidence" badge. Does not call Supabase; pairs with (but does not duplicate) the SQL-side `psyche_get_engine_status()` in `v5_analytics_migration.sql`.
 
@@ -307,6 +314,11 @@ If a rule appears in more than one doc file:
 | `src/pages/Analytics.tsx` | Page | V2 |
 | `src/pages/ReportExport.tsx` | Page | V2 |
 | `src/analytics/ColdStart.ts` | Code — Utility | V5 |
+| `src/analytics/programmeHealth.ts` | Code — Pure analytics | V8 |
+| `src/components/ProgrammeHealthPanel.tsx` | Component — presentational | V8 |
+| `v7_2_eti_followthrough_fix.sql` | Schema — bugfix (function only) | V7.2 |
+| `v7_3_followup_autoclose.sql` | Schema — trigger + function | V7.3 |
+| `v8_programme_health.sql` | Schema — read-only aggregate function | V8 |
 | `v5_migration.sql` | Schema — DDL (unmerged) | V5 |
 | `v5_analytics_migration.sql` | Schema — DDL (unmerged) | V5 |
 | `.github/workflows/daily_analytics.yml` | Ops — CI cron | V5 |

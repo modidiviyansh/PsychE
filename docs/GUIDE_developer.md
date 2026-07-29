@@ -403,14 +403,51 @@ per-student gap.
 how many exist; deltas render as "no change" rather than a fabricated zero.
 
 ### 9.8 Known deviation — inline styles
-Sections 9.1–9.7 above are implemented almost entirely with inline `style={{ }}` objects rather than the CSS classes mandated by Forbidden Pattern #4 below. This is a real, current violation of that rule — not a doc gap. Flagged here rather than silently retrofitted; a future pass should extract these into `index.css` utility classes if the pattern keeps expanding.
+Sections 9.1–9.7 and 10 above are implemented almost entirely with inline `style={{ }}` objects rather than the CSS classes mandated by Forbidden Pattern #4 below. This is a real, current violation of that rule — not a doc gap. Flagged here rather than silently retrofitted; a future pass should extract these into `index.css` utility classes if the pattern keeps expanding.
 
 ---
 
-## 10. Forbidden Patterns
+## 10. Programme Health dashboard — UI patterns (V8)
+
+**Route:** `/analytics` · **Components:** `src/components/ProgrammeHealthPanel.tsx` (presentational only)
+· **Maths:** `src/analytics/programmeHealth.ts` (pure) · **Fetch/compose:** `src/pages/Analytics.tsx`
+
+This is the school-admin view. Formulas and the measured/modelled rule are owned by
+`ARCH_technical-specs.md` §9 — this section owns presentation only.
+
+### 10.1 Modelled panels must announce themselves
+Any panel whose numbers derive from `daily_session_capacity` renders a `ModelledBanner` naming every
+assumption in play (capacity, working days, student count). This is **not** a stylistic nicety: capacity is a
+counsellor-reported planning figure, and a reader must never mistake it for an observation. Measured panels
+carry no banner, and say so in their subtitle ("Measured directly — independent of any capacity setting").
+
+### 10.2 Colour rule — same as §9
+One accent hue (`#5b8af5`) for all data marks, neutral grey for context and reference lines, status colours
+reserved for bands. On the **Lorenz curve** the two series are separated by **line style** — solid for actual,
+dashed for the equality diagonal — not by hue, and a legend is always present.
+
+### 10.3 Two Ginis, never merged
+Reach Gini (all students, zeros included) and Depth Gini (seen students only) answer different questions and
+are always shown as separate figures. Averaging or replacing one with the other hides exactly the gap the
+panel exists to expose.
+
+### 10.4 Statistics below their floor are suppressed, not shown faintly
+The need–service correlation renders as an explanation of *why it is absent* until `MIN_ALIGNMENT_N` students
+qualify. A ρ over 3 points would read to an administrator as a finding about their triage. Same discipline as
+the RSI cohort floor in §9.7.
+
+### 10.5 Suspected bulk entry is called out
+When a single day's completed-session count exceeds capacity, the Throughput panel says so explicitly and
+labels the figures provisional. A day above capacity is backdated data entry, not clinical work, and silently
+plotting it would overstate throughput.
+
+---
+
+## 11. Forbidden Patterns
 - ❌ Do NOT use `TailwindCSS` unless the user explicitly enables it.
 - ❌ Do NOT use any global state management library (Redux, Zustand, Jotai).
 - ❌ Do NOT duplicate schema definitions here — link to `ARCH_technical-specs.md`.
+- ❌ Do NOT present a capacity-derived figure without naming the assumption (see §10.1).
 - ❌ Do NOT write inline styles for layout. Use CSS classes defined in `index.css`. *(Currently violated across the Analytics/Telemetry surfaces — see §10.6.)*
 - ❌ Do NOT use `!important` except inside `@media print` blocks.
 - ❌ Do NOT silently swallow Supabase errors — always surface them to the UI. *(Currently violated in `AssessmentWizard.tsx`'s telemetry RPC call, which only `console.warn`s on failure — see registry note in `ARCH_documentation-governance.md`.)*
