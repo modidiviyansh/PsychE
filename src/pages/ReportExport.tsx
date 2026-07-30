@@ -2,6 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { Printer, ArrowLeft } from 'lucide-react';
+import { PrintSessionCard } from '../components/print/PrintSessionCard';
+import { PrintTelemetryBlock } from '../components/print/PrintTelemetryBlock';
+import { PrintAISummaryBlock } from '../components/print/PrintAISummaryBlock';
 
 export const ReportExport: React.FC = () => {
   const [searchParams] = useSearchParams();
@@ -9,17 +12,22 @@ export const ReportExport: React.FC = () => {
   const startDate = searchParams.get('start');
   const endDate = searchParams.get('end');
   const allTime = searchParams.get('allTime') === 'true';
+  const includeTelemetry = searchParams.get('includeTelemetry') === 'true';
+  const includeSummary = searchParams.get('includeSummary') === 'true';
   const navigate = useNavigate();
 
   const [student, setStudent] = useState<any>(null);
   const [logs, setLogs] = useState<any[]>([]);
+  const [telemetry, setTelemetry] = useState<any>(null);
+  const [engineStatus, setEngineStatus] = useState<string | null>(null);
+  const [aiSummary, setAiSummary] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function fetchReportData() {
       if (!studentId) return;
       if (!allTime && (!startDate || !endDate)) return;
-      
+
       try {
         const { data: sData } = await supabase.from('PsychE_Students').select('*').eq('id', studentId).single();
         if (sData) setStudent(sData);
@@ -36,13 +44,29 @@ export const ReportExport: React.FC = () => {
           const endD = new Date(endDate);
           endD.setHours(23, 59, 59, 999);
           const endIso = endD.toISOString();
-          
+
           query = query.gte('session_date', startIso).lte('session_date', endIso);
         }
 
         const { data: lData } = await query;
-        
+
         if (lData) setLogs(lData);
+
+        if (includeTelemetry) {
+          const [{ data: tData }, { data: statusData }] = await Promise.all([
+            supabase.from('PsychE_Student_Telemetry').select('*')
+              .eq('student_uuid', studentId).order('calculated_at', { ascending: false }).limit(1).maybeSingle(),
+            supabase.rpc('psyche_get_engine_status', { p_student_uuid: studentId }),
+          ]);
+          setTelemetry(tData ?? null);
+          setEngineStatus(typeof statusData === 'string' ? statusData : null);
+        }
+
+        if (includeSummary) {
+          const { data: rData } = await supabase.from('PsychE_AI_Reports').select('report_jsonb')
+            .eq('student_uuid', studentId).order('generated_at', { ascending: false }).limit(1).maybeSingle();
+          setAiSummary(rData?.report_jsonb ?? null);
+        }
       } catch (error) {
         console.error("Failed to fetch report data", error);
       } finally {
@@ -52,14 +76,15 @@ export const ReportExport: React.FC = () => {
       }
     }
     fetchReportData();
-  }, [studentId, startDate, endDate]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [studentId, startDate, endDate, allTime, includeTelemetry, includeSummary]);
 
   if (loading) return <div style={{ padding: '2rem', textAlign: 'center' }}>Generating Report...</div>;
   if (!student) return <div style={{ padding: '2rem', textAlign: 'center' }}>Student not found or invalid parameters.</div>;
 
   return (
     <div style={{ backgroundColor: '#fff', color: '#000', minHeight: '100vh', padding: '2rem' }}>
-      
+
       <div className="no-print" style={{ marginBottom: '2rem' }}>
         <button onClick={() => navigate(-1)} className="btn btn-secondary" style={{ marginRight: '1rem', padding: '0.5rem 1rem' }}>
           <ArrowLeft size={16} style={{ display: 'inline', marginRight: '0.5rem' }} /> Back
@@ -98,6 +123,20 @@ export const ReportExport: React.FC = () => {
           </div>
         </div>
 
+        {includeSummary && aiSummary && <PrintAISummaryBlock report={aiSummary} />}
+
+        {includeTelemetry && (
+          <PrintTelemetryBlock
+            metricsPayload={telemetry?.metrics_payload ?? null}
+            etiScore={telemetry?.eti_score ?? null}
+            etiData={telemetry?.eti_data ?? null}
+            compositeScore={telemetry?.composite_score ?? null}
+            compositeConfidence={telemetry?.composite_confidence ?? null}
+            rsiScore={telemetry?.rsi_score ?? null}
+            engineStatus={engineStatus}
+          />
+        )}
+
         {/* Logs / Transactions */}
         <h2 style={{ fontSize: '1.25rem', borderBottom: '1px solid #ccc', paddingBottom: '0.5rem', marginBottom: '1.5rem' }}>Session History</h2>
 
@@ -105,75 +144,9 @@ export const ReportExport: React.FC = () => {
           <p style={{ fontStyle: 'italic', color: '#666' }}>No completed sessions found in this date range.</p>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
-            {logs.map((log) => {
-              const hasAssessments = log.assessment_data && log.assessment_data.length > 0;
-              
-              return (
-                <div key={log.id} style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed #ccc', paddingBottom: '0.5rem', marginBottom: '1rem' }}>
-                    <div>
-                      <span style={{ fontWeight: 'bold', fontSize: '1.1rem', display: 'block' }}>{new Date(log.session_date).toLocaleDateString()} - {log.interaction_type}</span>
-                      <span style={{ fontSize: '0.875rem', color: '#555' }}>Counselor: {log.counselor_name}</span>
-                    </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <span style={{ fontWeight: 'bold', display: 'block' }}>Ref: {log.id.split('-')[0].toUpperCase()}</span>
-                    </div>
-                  </div>
-
-                  <div style={{ paddingLeft: '1rem', borderLeft: '3px solid #eee' }}>
-                    <p style={{ margin: '0 0 1rem 0', fontWeight: 'bold' }}>Reason: {log.reason}</p>
-                    
-                    {log.student_response && (
-                      <div style={{ marginBottom: '1rem' }}>
-                        <strong style={{ fontSize: '0.875rem', display: 'block', marginBottom: '0.25rem' }}>Synthesis Notes:</strong>
-                        <p style={{ margin: 0, fontSize: '0.9rem', lineHeight: '1.5', whiteSpace: 'pre-line' }}>{log.student_response}</p>
-                      </div>
-                    )}
-
-                    {hasAssessments && (
-                      <div style={{ marginTop: '1.5rem' }}>
-                        <strong style={{ fontSize: '0.875rem', display: 'block', marginBottom: '0.5rem', borderBottom: '1px solid #ddd', paddingBottom: '0.25rem' }}>Assessment Receipts</strong>
-                        
-                        {log.assessment_data.map((a: any, i: number) => {
-                          const rawScoreValues = Object.values(a.responses) as number[];
-                          const totalScore = rawScoreValues.reduce((sum, val) => sum + (val || 0), 0);
-                          const totalQs = a.total_questions || 8;
-                          const maxPossible = (a.type === 'COMPE' || a.type === 'MIX') ? totalQs * 4 : 'N/A';
-                          const percentage = maxPossible !== 'N/A' && maxPossible > 0 ? Math.round((totalScore / (maxPossible as number)) * 100) : null;
-                          
-                          return (
-                            <div key={i} className="table-scroll" style={{ overflowX: 'auto', marginBottom: '1.5rem', backgroundColor: 'var(--color-surface)', borderRadius: 'var(--radius-md)', padding: '1rem', border: '1px solid var(--color-border)' }}>
-                              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
-                                <strong style={{ fontSize: '1rem' }}>{a.title}</strong>
-                                <strong>Score: {percentage !== null ? `${percentage}%` : totalScore}</strong>
-                              </div>
-                              
-                              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
-                                <tbody>
-                                  {Object.entries(a.responses).map(([q, ans]: any, j) => (
-                                    <tr key={j} style={{ borderBottom: '1px solid #f0f0f0' }}>
-                                      <td style={{ padding: '0.4rem 0', color: '#444' }}>{q}</td>
-                                      <td style={{ padding: '0.4rem 0', textAlign: 'right', fontWeight: 'bold', width: '50px' }}>{ans}</td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-
-                    {(log.recommended_action || log.follow_up_date) && (
-                      <div style={{ display: 'flex', gap: '2rem', marginTop: '1rem', fontSize: '0.875rem', backgroundColor: '#f9f9f9', padding: '0.75rem', borderLeft: '2px solid #ccc' }}>
-                        {log.recommended_action && <div><strong>Action:</strong> {log.recommended_action}</div>}
-                        {log.follow_up_date && <div><strong>Scheduled Follow-up:</strong> {new Date(log.follow_up_date).toLocaleDateString()}</div>}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
+            {logs.map((log) => (
+              <PrintSessionCard key={log.id} log={log} />
+            ))}
           </div>
         )}
 

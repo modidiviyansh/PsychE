@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Edit2, Calendar, Phone, Mail, BookOpen, ArrowLeft, Eye, EyeOff, User, BrainCircuit, ChevronDown, ChevronUp, FileDown, X, Tag, Plus, Activity, Sparkles, AlertTriangle, FileText } from 'lucide-react';
+import { Edit2, Calendar, Phone, Mail, BookOpen, ArrowLeft, Eye, EyeOff, User, BrainCircuit, FileDown, X, Tag, Plus, Activity, Sparkles, AlertTriangle, FileText } from 'lucide-react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { AssessmentWizard } from '../components/AssessmentWizard';
-import type { AIReport, NoteKind, SanitizedSessionReport, StudentNote, TelemetryPayload } from '../types';
+import type { AIReport, FormalizedSession, NoteKind, StudentNote, TelemetryPayload } from '../types';
 import { MIN_COMPOSITE_CONFIDENCE } from '../types';
 import { MiniNotesPanel } from '../components/MiniNotes';
 import {
@@ -13,8 +13,8 @@ import {
 import { AIReportPanel } from '../components/AIReportPanel';
 import { fetchLatestReport, generateReport } from '../lib/aiReports';
 import { AISummaryCard } from '../components/AISummaryCard';
-import { FormalReportsPanel } from '../components/FormalReportsPanel';
-import { fetchSessionReports, generateSessionReport } from '../lib/sessionReports';
+import { TimelineEntry } from '../components/TimelineEntry';
+import { fetchFormalizedSessions, formalizeSessions } from '../lib/formalizedSessions';
 import {
   EvidenceStrip, DomainProfile, TensionStrip, EngagementPanel,
   CompositeContribution, RsiPanel
@@ -115,20 +115,20 @@ export const StudentProfile: React.FC = () => {
   const [aiCooldownActive, setAiCooldownActive] = useState(false);
   const [aiCooldownEndsAt, setAiCooldownEndsAt] = useState<string | null>(null);
 
-  // ---- V11 AI panel tabs + Formal (Sanitized Session) Reports -------------
-  const [sessionReports, setSessionReports] = useState<SanitizedSessionReport[]>([]);
-  const [sessionReportsLoading, setSessionReportsLoading] = useState(true);
-  const [sessionReportsError, setSessionReportsError] = useState<string | null>(null);
+  // ---- V12 Formal Timeline (per-session) -----------------------------------
+  const [formalizedSessions, setFormalizedSessions] = useState<FormalizedSession[]>([]);
+  const [formalizedLoading, setFormalizedLoading] = useState(true);
+  const [formalizedError, setFormalizedError] = useState<string | null>(null);
+  const [formalizing, setFormalizing] = useState(false);
+  const [formalizeError, setFormalizeError] = useState<string | null>(null);
 
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [reportKind, setReportKind] = useState<'raw' | 'formal'>('raw');
   const [reportType, setReportType] = useState('custom');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
-  const [formalIncludeTelemetry, setFormalIncludeTelemetry] = useState(false);
-  const [formalIncludeSummary, setFormalIncludeSummary] = useState(false);
-  const [formalGenerating, setFormalGenerating] = useState(false);
-  const [formalGenerateError, setFormalGenerateError] = useState<string | null>(null);
+  const [reportIncludeTelemetry, setReportIncludeTelemetry] = useState(false);
+  const [reportIncludeSummary, setReportIncludeSummary] = useState(false);
   useEffect(() => {
     document.title = "UPsych : GCM Edition | Student Profile";
   }, []);
@@ -398,25 +398,34 @@ export const StudentProfile: React.FC = () => {
     if (data) setAiReport(data);
   };
 
-  /** Formal (Sanitized Session) Reports (V11) — own effect, same isolation reasoning as the two above. */
+  /** Formal Timeline (V12) — own effect, same isolation reasoning as the two above. */
   useEffect(() => {
     if (!student?.id) return;
     let cancelled = false;
 
     (async () => {
-      setSessionReportsLoading(true);
-      const { data, error } = await fetchSessionReports(student.id);
+      setFormalizedLoading(true);
+      const { data, error } = await fetchFormalizedSessions(student.id);
       if (cancelled) return;
-      setSessionReports(data);
-      setSessionReportsError(error);
-      setSessionReportsLoading(false);
+      setFormalizedSessions(data);
+      setFormalizedError(error);
+      setFormalizedLoading(false);
     })();
 
     return () => { cancelled = true; };
   }, [student?.id]);
 
-  const handleOpenSessionReport = (report: SanitizedSessionReport) => {
-    navigate(`/formal-report?studentId=${student.id}&reportId=${report.id}`);
+  /** The only async AI call left in this feature — tops up whatever's pending, once, in one batched call. */
+  const handleFormalizeSessions = async () => {
+    if (!student?.id) return;
+    setFormalizing(true);
+    setFormalizeError(null);
+    const { formalizedSessions: newRows, error, alreadyCurrent } = await formalizeSessions(student.id);
+    setFormalizing(false);
+    if (error) { setFormalizeError(error); return; }
+    if (!alreadyCurrent && newRows.length > 0) {
+      setFormalizedSessions(prev => [...prev, ...newRows]);
+    }
   };
 
   /**
@@ -470,42 +479,21 @@ export const StudentProfile: React.FC = () => {
     return `${maskedName}@${parts[1]}`;
   };
 
-  const handleGenerateReport = async () => {
+  // Generation and printing are fully decoupled now (V12) — this is a pure
+  // navigate for BOTH Raw and Formal. Formalizing happens ahead of time, from
+  // the History → Formal Timeline tab; printing just reads what's already
+  // there (or the raw text with a "not yet formalized" note), so there is no
+  // Edge Function call in this modal at all anymore.
+  const handleGenerateReport = () => {
     if (reportType !== 'allTime' && (!startDate || !endDate)) {
       alert("Please select both start and end dates.");
       return;
     }
-
-    if (reportKind === 'raw') {
-      if (reportType === 'allTime') navigate(`/report?studentId=${student.id}&allTime=true`);
-      else navigate(`/report?studentId=${student.id}&start=${startDate}&end=${endDate}`);
-      return;
-    }
-
-    // Formal — calls the Edge Function directly rather than navigating first,
-    // since the print view (FormalReportExport) only ever renders an ALREADY
-    // generated row by id. Generation and printing are one action here, but
-    // re-opening the same report later from the Formal Reports tab reuses the
-    // exact same print route with no regeneration.
-    setFormalGenerating(true);
-    setFormalGenerateError(null);
-    const { data, error, noSessions } = await generateSessionReport({
-      studentUuid: student.id,
-      allTime: reportType === 'allTime',
-      startDate: reportType === 'allTime' ? undefined : startDate,
-      endDate: reportType === 'allTime' ? undefined : endDate,
-      includeTelemetry: formalIncludeTelemetry,
-      includeSummary: formalIncludeSummary,
-    });
-    setFormalGenerating(false);
-
-    if (error) { setFormalGenerateError(error); return; }
-    if (noSessions) { setFormalGenerateError('No completed sessions found in this range.'); return; }
-    if (data) {
-      setSessionReports(prev => [data, ...prev]);
-      setIsReportModalOpen(false);
-      navigate(`/formal-report?studentId=${student.id}&reportId=${data.id}`);
-    }
+    const range = reportType === 'allTime' ? 'allTime=true' : `start=${startDate}&end=${endDate}`;
+    const flags = `includeTelemetry=${reportIncludeTelemetry}&includeSummary=${reportIncludeSummary}`;
+    const path = reportKind === 'raw' ? '/report' : '/formal-report';
+    setIsReportModalOpen(false);
+    navigate(`${path}?studentId=${student.id}&${range}&${flags}`);
   };
 
   const handleToggleTag = async (tag: any) => {
@@ -799,11 +787,18 @@ export const StudentProfile: React.FC = () => {
           </>
         )}
 
-        {/* ── History tab: Raw Timeline ↔ Formal Reports ──────────────────
-            Two renderings of "what happened" — the verbatim log, and the
-            AI-narrativized, redacted write-up. Same toggle idiom as Summary
-            below, so a counsellor learns "fast view / deep view" once. */}
-        {activeTab === 'history' && (
+        {/* ── History tab: Raw Timeline ↔ Formal Timeline ──────────────────
+            Two renderings of the SAME sessions — verbatim, or with reason /
+            notes / action rewritten in formal clinical language. Same
+            component (TimelineEntry) renders both; only the text differs.
+            Same toggle idiom as Summary below, so a counsellor learns "fast
+            view / deep view" once. */}
+        {activeTab === 'history' && (() => {
+          const completedLogs = logs.filter(l => l.session_status === 'Completed');
+          const formalizedByLogId = new Map(formalizedSessions.map(f => [f.log_id, f]));
+          const pendingCount = completedLogs.filter(l => !formalizedByLogId.has(l.id)).length;
+
+          return (
           <motion.div variants={item} className="bento-card col-span-12">
             <div className="sub-toggle no-print">
               <button
@@ -818,205 +813,85 @@ export const StudentProfile: React.FC = () => {
                 className={`sub-toggle-btn ${historyView === 'formal' ? 'sub-toggle-btn--active' : ''}`}
                 onClick={() => setHistoryView('formal')}
               >
-                <FileText size={13} /> Formal Reports
-                {sessionReports.length > 0 && <span className="pill pill--muted">{sessionReports.length}</span>}
+                <FileText size={13} /> Formal Timeline
+                {pendingCount > 0 && <span className="pill pill--amber">{pendingCount} pending</span>}
               </button>
             </div>
 
-            {historyView === 'raw' ? (
-              <>
-                <div className="flex justify-between items-center mb-6 mobile-stack mobile-stack-start" style={{ gap: '1rem' }}>
-                  <h3 className="text-h3">Counseling History</h3>
-                  <motion.button
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={() => navigate(`/add-log?student=${student.id}`)}
-                    className="btn btn-secondary no-print"
-                    style={{ padding: '0.5rem 1rem', fontSize: '0.875rem', borderColor: 'var(--color-primary)', color: 'var(--color-primary)' }}
-                  >
-                    + Log Session
-                  </motion.button>
-                </div>
+            <div className="flex justify-between items-center mb-6 mobile-stack mobile-stack-start" style={{ gap: '1rem' }}>
+              <h3 className="text-h3">{historyView === 'raw' ? 'Counseling History' : 'Formal Timeline'}</h3>
+              {historyView === 'raw' ? (
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => navigate(`/add-log?student=${student.id}`)}
+                  className="btn btn-secondary no-print"
+                  style={{ padding: '0.5rem 1rem', fontSize: '0.875rem', borderColor: 'var(--color-primary)', color: 'var(--color-primary)' }}
+                >
+                  + Log Session
+                </motion.button>
+              ) : (
+                <button
+                  onClick={handleFormalizeSessions}
+                  className="btn btn-secondary no-print"
+                  disabled={formalizing || pendingCount === 0}
+                  style={{ padding: '0.5rem 1rem', fontSize: '0.875rem', borderColor: 'var(--color-primary)', color: 'var(--color-primary)', opacity: pendingCount === 0 ? 0.6 : 1 }}
+                >
+                  <Sparkles size={14} />
+                  {formalizing ? 'Formalizing…' : pendingCount === 0 ? 'Up to date' : `Formalize ${pendingCount} pending`}
+                </button>
+              )}
+            </div>
 
-                <div style={{ position: 'relative', paddingLeft: '1rem' }}>
-                  <div className="no-print" style={{ position: 'absolute', left: 0, top: '1rem', bottom: 0, width: '2px', backgroundColor: 'var(--color-border)' }}></div>
-
-                  <AnimatePresence>
-                    <div className="flex" style={{ flexDirection: 'column', gap: '2rem' }}>
-                      {logs.length === 0 ? (
-                        <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-muted py-4">No counseling logs found for this student.</motion.p>
-                      ) : (
-                        logs.map((item, index) => {
-                          const isDraft = item.session_status === 'Draft';
-                          const hasAssessments = item.assessment_data && item.assessment_data.length > 0;
-                          const isExpanded = expandedLogs.has(item.id);
-
-                          return (
-                            <motion.div
-                              key={item.id}
-                              initial={{ opacity: 0, x: -20 }}
-                              animate={{ opacity: 1, x: 0 }}
-                              transition={{ delay: index * 0.1, type: 'spring', stiffness: 300 }}
-                              className="print-timeline-item"
-                              style={{ position: 'relative', paddingLeft: '2rem' }}
-                            >
-                              {/* Timeline Dot */}
-                              <div className="no-print" style={{
-                                position: 'absolute', left: '-21px', top: '5px', width: '12px', height: '12px', borderRadius: '50%',
-                                backgroundColor: isDraft ? '#f59e0b' : hasAssessments ? '#10b981' : 'var(--color-primary)',
-                                border: '2px solid var(--color-surface)'
-                              }}></div>
-
-                              <div className="flex justify-between items-start mb-2">
-                                <div>
-                                  <div className="flex items-center gap-2 mb-1">
-                                    {isDraft && (
-                                      <span style={{ fontSize: '0.75rem', padding: '0.1rem 0.5rem', backgroundColor: 'rgba(245, 158, 11, 0.1)', border: '1px solid rgba(245, 158, 11, 0.2)', borderRadius: '4px', color: '#f59e0b' }}>
-                                        Draft
-                                      </span>
-                                    )}
-                                    <span style={{ fontSize: '0.75rem', padding: '0.1rem 0.5rem', backgroundColor: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: '4px', color: 'var(--color-primary)' }}>
-                                      {item.interaction_type || 'Session'}
-                                    </span>
-                                    {hasAssessments && !isDraft && (
-                                      <span style={{ fontSize: '0.75rem', padding: '0.1rem 0.5rem', backgroundColor: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.2)', borderRadius: '4px', color: '#10b981', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                        <BrainCircuit size={10} /> Assessment
-                                      </span>
-                                    )}
-                                  </div>
-                                  <h4 className="text-h3" style={{ fontSize: '1.25rem' }}>{item.reason}</h4>
-                                  <p className="text-muted" style={{ fontSize: '0.875rem' }}>{item.counselor_name} • {new Date(item.session_date).toLocaleString()}</p>
-                                </div>
-
-                                {/* Action Button: Resume Draft or Expand Assessments */}
-                                {isDraft ? (
-                                  <button
-                                    onClick={() => {
-                                      if (item.interaction_type === 'Session' && (!item.student_response || item.student_response === 'Draft Assessment')) {
-                                        // Navigate to /add-log to resume an embedded draft to ensure clinical notes are filled
-                                        navigate(`/add-log?schedule_id=${item.id}&student=${student.id}`);
-                                      } else {
-                                        setActiveAssessmentId('draft'); // Dummy ID to trigger wizard mount
-                                        setActiveDraftLogId(item.id);
-                                      }
-                                    }}
-                                    className="btn btn-secondary"
-                                    style={{ padding: '0.25rem 0.75rem', fontSize: '0.875rem', color: '#f59e0b', borderColor: 'transparent', backgroundColor: 'rgba(245, 158, 11, 0.1)' }}
-                                  >
-                                    Resume Draft
-                                  </button>
-                                ) : hasAssessments ? (
-                                  <button
-                                    onClick={() => toggleExpand(item.id)}
-                                    className="btn btn-secondary"
-                                    style={{ padding: '0.25rem 0.75rem', fontSize: '0.875rem', backgroundColor: 'transparent', border: '1px solid var(--color-border)' }}
-                                  >
-                                    {isExpanded ? <><ChevronUp size={14} /> Collapse</> : <><ChevronDown size={14} /> Expand</>}
-                                  </button>
-                                ) : null}
-                              </div>
-
-                              {/* Collapsed Assessment View */}
-                              {!isDraft && hasAssessments && !isExpanded && (
-                                <div style={{ backgroundColor: 'rgba(16, 185, 129, 0.05)', padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)', border: '1px solid rgba(16, 185, 129, 0.2)', display: 'flex', flexWrap: 'wrap', gap: '1rem' }}>
-                                  {(item.assessment_data as any[]).map((a: any, i: number) => {
-                                    const rawScoreValues = Object.values(a.responses) as number[];
-                                    const totalScore = rawScoreValues.reduce((sum, val) => sum + (val || 0), 0);
-                                    const totalQs = a.total_questions || 8;
-                                    const maxPossible = (a.type === 'COMPE' || a.type === 'MIX') ? totalQs * 4 : 'N/A';
-                                    const percentage = maxPossible !== 'N/A' && maxPossible > 0 ? Math.round((totalScore / (maxPossible as number)) * 100) : null;
-                                    return (
-                                      <span key={i} style={{ fontSize: '0.875rem', fontWeight: 500, color: '#10b981' }}>
-                                        {a.title}: {percentage !== null ? `${percentage}%` : totalScore}
-                                      </span>
-                                    );
-                                  })}
-                                </div>
-                              )}
-
-                              {/* Expanded Notes and Receipt */}
-                              {(!hasAssessments || isExpanded) && !isDraft && (
-                                <motion.div
-                                  initial={{ opacity: 0, height: 0 }}
-                                  animate={{ opacity: 1, height: 'auto' }}
-                                  className="print-notes"
-                                  style={{ backgroundColor: 'var(--color-bg)', padding: '1.25rem', borderRadius: 'var(--radius-md)', marginTop: '0.5rem', border: '1px solid var(--color-border)', overflow: 'hidden' }}
-                                >
-                                  <div className="mb-4">
-                                    <p className="text-muted" style={{ fontSize: '0.75rem', textTransform: 'uppercase', marginBottom: '0.5rem', letterSpacing: '0.05em' }}>Session Notes & Student Response</p>
-                                    <p className="text-body" style={{ whiteSpace: 'pre-line', lineHeight: '1.6' }}>{item.student_response || 'No notes provided.'}</p>
-                                  </div>
-
-                                  {hasAssessments && (
-                                    <div className="mb-4">
-                                      <p className="text-muted" style={{ fontSize: '0.75rem', textTransform: 'uppercase', marginBottom: '0.5rem', letterSpacing: '0.05em' }}>Full Assessment Receipt</p>
-                                      {(item.assessment_data as any[]).map((a: any, i: number) => (
-                                        <div key={i} style={{ backgroundColor: 'rgba(0,0,0,0.1)', padding: '1rem', borderRadius: 'var(--radius-sm)', marginBottom: '0.5rem' }}>
-                                          <h5 style={{ fontSize: '0.875rem', color: 'var(--color-primary)', marginBottom: '0.75rem' }}>{a.title}</h5>
-                                          {Object.entries(a.responses).map(([q, ans]: any, j) => (
-                                            <div key={j} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.5rem', backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: '4px', fontSize: '0.875rem', marginBottom: '2px' }}>
-                                              <span style={{ color: 'var(--color-text-muted)', flex: 1, paddingRight: '1rem' }}>{q}</span>
-                                              <strong style={{ color: '#10b981', minWidth: '30px', textAlign: 'right' }}>{ans}</strong>
-                                            </div>
-                                          ))}
-                                        </div>
-                                      ))}
-                                    </div>
-                                  )}
-
-                                  <div className="flex gap-4 flex-wrap">
-                                    <div className="print-action" style={{ flex: 1, backgroundColor: 'rgba(74, 222, 128, 0.1)', color: 'var(--color-success)', padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)', fontSize: '0.875rem', fontWeight: 500, minWidth: '200px' }}>
-                                      <span style={{ fontSize: '0.75rem', display: 'block', opacity: 0.8, marginBottom: '4px', letterSpacing: '0.05em' }}>RECOMMENDED ACTION</span>
-                                      {item.recommended_action || 'None'}
-                                    </div>
-                                    {item.follow_up_date && (() => {
-                                      const st = item.follow_up_status || 'Pending';
-                                      const closed = st === 'Done' || st === 'Cancelled';
-                                      const tone = st === 'Done' ? { bg: 'rgba(63, 201, 143, 0.1)', fg: 'var(--color-success)' }
-                                        : st === 'Cancelled' ? { bg: 'rgba(255,255,255,0.04)', fg: 'var(--color-text-muted)' }
-                                          : { bg: 'rgba(245, 158, 11, 0.1)', fg: '#f59e0b' };
-                                      return (
-                                        <div className="print-action" style={{ flex: 1, backgroundColor: tone.bg, color: tone.fg, padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)', fontSize: '0.875rem', fontWeight: 500, minWidth: '200px' }}>
-                                          <span style={{ fontSize: '0.75rem', display: 'block', opacity: 0.8, marginBottom: '4px', letterSpacing: '0.05em' }}>FOLLOW-UP ({st})</span>
-                                          {new Date(item.follow_up_date).toLocaleDateString()}
-                                          {!closed && (
-                                            <div className="no-print" style={{ display: 'flex', gap: '0.4rem', marginTop: '0.5rem' }}>
-                                              <button
-                                                onClick={(e) => { e.stopPropagation(); setFollowUpStatus(item.id, 'Done'); }}
-                                                style={{ cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600, padding: '0.2rem 0.6rem', borderRadius: 'var(--radius-full)', border: '1px solid rgba(63,201,143,0.4)', background: 'rgba(63,201,143,0.12)', color: 'var(--color-success)' }}
-                                                title="Mark this follow-up as completed — restores the student's follow-through score"
-                                              >✓ Mark Done</button>
-                                              <button
-                                                onClick={(e) => { e.stopPropagation(); setFollowUpStatus(item.id, 'Cancelled'); }}
-                                                style={{ cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600, padding: '0.2rem 0.6rem', borderRadius: 'var(--radius-full)', border: '1px solid var(--color-border)', background: 'transparent', color: 'var(--color-text-muted)' }}
-                                                title="No longer required"
-                                              >Cancel</button>
-                                            </div>
-                                          )}
-                                        </div>
-                                      );
-                                    })()}
-                                  </div>
-                                </motion.div>
-                              )}
-                            </motion.div>
-                          )
-                        })
-                      )}
-                    </div>
-                  </AnimatePresence>
-                </div>
-              </>
-            ) : (
-              <FormalReportsPanel
-                reports={sessionReports}
-                loading={sessionReportsLoading}
-                error={sessionReportsError}
-                onOpenReport={handleOpenSessionReport}
-              />
+            {formalizedError && historyView === 'formal' && (
+              <p className="mini-note-error mb-4">Could not load formalized sessions: {formalizedError}</p>
             )}
+            {formalizeError && <p className="mini-note-error mb-4">{formalizeError}</p>}
+
+            <div style={{ position: 'relative', paddingLeft: '1rem' }}>
+              <div className="no-print" style={{ position: 'absolute', left: 0, top: '1rem', bottom: 0, width: '2px', backgroundColor: 'var(--color-border)' }}></div>
+
+              <AnimatePresence>
+                <div className="flex" style={{ flexDirection: 'column', gap: '2rem' }}>
+                  {historyView === 'formal' && formalizedLoading ? (
+                    <p className="text-muted py-4">Loading formalized sessions…</p>
+                  ) : (historyView === 'raw' ? logs : completedLogs).length === 0 ? (
+                    <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-muted py-4">
+                      {historyView === 'raw' ? 'No counseling logs found for this student.' : 'No completed sessions to formalize yet.'}
+                    </motion.p>
+                  ) : (
+                    (historyView === 'raw' ? logs : completedLogs).map((item, index) => {
+                      const formalized = historyView === 'formal' ? formalizedByLogId.get(item.id) : undefined;
+                      return (
+                        <TimelineEntry
+                          key={item.id}
+                          log={item}
+                          index={index}
+                          isExpanded={expandedLogs.has(item.id)}
+                          onToggleExpand={toggleExpand}
+                          onResumeDraft={historyView === 'raw' ? (log) => {
+                            if (log.interaction_type === 'Session' && (!log.student_response || log.student_response === 'Draft Assessment')) {
+                              navigate(`/add-log?schedule_id=${log.id}&student=${student.id}`);
+                            } else {
+                              setActiveAssessmentId('draft');
+                              setActiveDraftLogId(log.id);
+                            }
+                          } : undefined}
+                          onFollowUpStatus={setFollowUpStatus}
+                          overrideReason={historyView === 'formal' ? (formalized?.reason_formal ?? item.reason) : undefined}
+                          overrideNotes={historyView === 'formal' ? (formalized?.student_response_formal ?? item.student_response) : undefined}
+                          overrideAction={historyView === 'formal' ? (formalized?.recommended_action_formal ?? item.recommended_action) : undefined}
+                          isFormalized={historyView === 'formal' ? Boolean(formalized) : undefined}
+                        />
+                      );
+                    })
+                  )}
+                </div>
+              </AnimatePresence>
+            </div>
           </motion.div>
-        )}
+          );
+        })()}
 
         {/* ── Summary tab: Quick ↔ Technical ──────────────────────────────
             Same toggle idiom as History above — Quick is the crisp derived
@@ -1346,7 +1221,7 @@ export const StudentProfile: React.FC = () => {
             <p className="text-muted mb-4" style={{ fontSize: '0.78rem', marginTop: '-0.75rem' }}>
               {reportKind === 'raw'
                 ? 'Verbatim session log, exactly as recorded — the original export.'
-                : 'AI-written narrative from redacted session text. Best-effort redaction, not a PII guarantee.'}
+                : 'The same timeline, entry by entry, with reason/notes/action rewritten in formal clinical language. Formalize sessions first from the History tab — anything not yet formalized prints with a note, not a blend.'}
             </p>
 
             <div className="mb-6" style={{ display: 'flex', gap: '1rem' }}>
@@ -1373,28 +1248,25 @@ export const StudentProfile: React.FC = () => {
               </>
             )}
 
-            {reportKind === 'formal' && (
-              <div className="mb-6" style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.875rem', cursor: 'pointer' }}>
-                  <input type="checkbox" checked={formalIncludeTelemetry} onChange={e => setFormalIncludeTelemetry(e.target.checked)} />
-                  Include telemetry data (domain/engagement bands)
-                </label>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.875rem', cursor: 'pointer' }}>
-                  <input type="checkbox" checked={formalIncludeSummary} onChange={e => setFormalIncludeSummary(e.target.checked)} />
-                  Include current AI Summary
-                </label>
-              </div>
-            )}
-
-            {formalGenerateError && <p className="mini-note-error mb-4">{formalGenerateError}</p>}
+            {/* Print-composition add-ons — pure rendering, never sent to an LLM,
+                so they apply the same way to Raw or Formal. */}
+            <div className="mb-6" style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.875rem', cursor: 'pointer' }}>
+                <input type="checkbox" checked={reportIncludeTelemetry} onChange={e => setReportIncludeTelemetry(e.target.checked)} />
+                Include telemetry data (dashboard charts, printable)
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.875rem', cursor: 'pointer' }}>
+                <input type="checkbox" checked={reportIncludeSummary} onChange={e => setReportIncludeSummary(e.target.checked)} />
+                Include current AI Summary (at the top of the report)
+              </label>
+            </div>
 
             <button
               onClick={handleGenerateReport}
               className="btn btn-primary"
               style={{ width: '100%', padding: '0.75rem' }}
-              disabled={formalGenerating}
             >
-              {formalGenerating ? 'Generating…' : reportKind === 'raw' ? 'Compile Report' : 'Generate Formal Report'}
+              {reportKind === 'raw' ? 'Compile Report' : 'Generate Formal Report'}
             </button>
           </motion.div>
         </div>

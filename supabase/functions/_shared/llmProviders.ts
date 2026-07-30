@@ -1,5 +1,5 @@
 // =============================================================================
-//  Shared LLM call plumbing — used by generate-ai-report and generate-session-report.
+//  Shared LLM call plumbing — used by generate-ai-report and formalize-sessions.
 //  Neither function talks to Groq/Gemini directly; both go through here so a
 //  provider quirk (auth header shape, token-limit field name) is fixed once.
 // =============================================================================

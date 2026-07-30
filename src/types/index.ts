@@ -201,14 +201,10 @@ export interface GroundLevelSuggestion {
 }
 
 /**
- * V11 — Formal (Sanitized Session) Report. One row per generation, append-log.
- *
- * Unlike AIReport, this one's generation path DOES touch free session text —
- * that's the point of a "session report". Redaction happens server-side in
- * the Edge Function before the LLM ever sees it (best-effort, not a PII
- * guarantee — see supabase/functions/_shared/redaction.ts). `report_text` is
- * the only thing this app ever displays; the raw session text is never sent
- * to the client alongside it.
+ * @deprecated V11 shape — superseded by FormalizedSession (V12). Kept only
+ * because PsychE_Sanitized_Session_Reports still exists in the DB (this
+ * schema never drops tables); nothing in the app reads or writes this type
+ * anymore. Do not use for new code.
  */
 export interface SanitizedSessionReport {
   id: string;                       // UUID PK
@@ -220,6 +216,25 @@ export interface SanitizedSessionReport {
   included_summary: boolean;
   model_used?: string | null;
   generated_at: string;
+}
+
+/**
+ * V12 — Formal Timeline. One row per RAW SESSION (PsychE_Counseling_Logs),
+ * not per generation run — "has this session been formalized?" is just
+ * "does a row with this log_id exist". Every other field about the session
+ * (date, counsellor, status, assessment data, follow-up) stays sourced from
+ * PsychE_Counseling_Logs and is merged in by the caller via `log_id`; this
+ * type only carries the three rewritten text fields.
+ */
+export interface FormalizedSession {
+  id: string;                             // UUID PK
+  log_id: string;                         // FK → PsychE_Counseling_Logs(id), UNIQUE
+  student_uuid: string;                   // FK → PsychE_Students(id)
+  reason_formal: string | null;
+  student_response_formal: string | null;
+  recommended_action_formal: string | null;
+  model_used?: string | null;
+  formalized_at: string;
 }
 
 // ---------------------------------------------------------------------------

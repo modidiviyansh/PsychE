@@ -1,6 +1,6 @@
 -- =============================================================================
 --  PsychE — Complete Database Installer
---  Version 6.4.0 · consolidated 2026-07-30
+--  Version 6.5.0 · consolidated 2026-07-30
 -- =============================================================================
 --
 --  ONE FILE. Paste into the Supabase SQL editor and run. That is the whole
@@ -90,13 +90,13 @@ CREATE TABLE IF NOT EXISTS "PsychE_Settings" (
     id                       INT           PRIMARY KEY DEFAULT 1,
     daily_session_capacity   INT           DEFAULT 15,
     allowed_pins             TEXT          DEFAULT '2001,0987,0999,2580',
-    app_version              VARCHAR(20)   DEFAULT '6.4.0',
+    app_version              VARCHAR(20)   DEFAULT '6.5.0',
     assessment_cooldown_days INT           DEFAULT 30,
     created_at               TIMESTAMPTZ   DEFAULT NOW()
 );
 
 INSERT INTO "PsychE_Settings" (id, daily_session_capacity, allowed_pins, app_version, assessment_cooldown_days)
-VALUES (1, 15, '2001,0987,0999,2580', '6.4.0', 30)
+VALUES (1, 15, '2001,0987,0999,2580', '6.5.0', 30)
 ON CONFLICT (id) DO NOTHING;
 
 -- ─── 2.3 Domains (7 psychological scoring domains) ───────────────────────────
@@ -271,16 +271,13 @@ CREATE TABLE IF NOT EXISTS "PsychE_AI_Reports" (
 );
 
 
--- ─── 2.13 Sanitized Session Reports — V11 Formal Reports ─────────────────────
---  Triggered from the SAME "Generate Report" modal as the raw statement
---  export (ReportExport.tsx / /report), not a separate composer — the counsellor
---  picks Raw vs Formal there, plus (for Formal) whether to fold in telemetry
---  bands and/or the current AI Summary. One row per generation, append-only.
---
---  ⚠ Unlike PsychE_AI_Reports, this table's generation path DOES touch free
---    session text — that's the point of a "session report". The redaction in
---    supabase/functions/_shared/redaction.ts is best-effort (structural
---    substitution + regex), not a PII guarantee. See that file's header.
+-- ─── 2.13 Sanitized Session Reports — V11 Formal Reports (SUPERSEDED) ────────
+--  ⚠ SUPERSEDED by 2.15 PsychE_Formalized_Sessions (V12). V11 blended a whole
+--    date range into one AI-written narrative paragraph, which testing showed
+--    was unusable — a counsellor wants the raw timeline, formalized entry by
+--    entry, not a re-written essay. Kept here only because this schema never
+--    drops tables; the app no longer reads or writes this one. Historical
+--    rows, if any, are orphaned from the UI.
 CREATE TABLE IF NOT EXISTS "PsychE_Sanitized_Session_Reports" (
     id                  UUID          PRIMARY KEY DEFAULT uuid_generate_v4(),
     student_uuid        UUID          NOT NULL REFERENCES "PsychE_Students"(id) ON DELETE CASCADE,
@@ -311,6 +308,40 @@ CREATE TABLE IF NOT EXISTS "PsychE_Model_Usage_Log" (
     tokens_used   INT,
     student_uuid  UUID          REFERENCES "PsychE_Students"(id) ON DELETE SET NULL,
     called_at     TIMESTAMPTZ   DEFAULT NOW()
+);
+
+
+-- ─── 2.15 Formalized Sessions — V12 Formal Timeline ──────────────────────────
+--  Replaces the V11 approach above: one row per RAW SESSION, not per date-range
+--  generation. "Formal Reports" is the raw timeline with reason /
+--  student_response / recommended_action rewritten in formal clinical
+--  language — same entries, same facts, no condensing, no blending sessions
+--  together. Every other field (date, counsellor, status, assessment data,
+--  follow-up) is read from PsychE_Counseling_Logs directly and joined by
+--  log_id; nothing about a session is duplicated here except its rewritten
+--  text, so there is exactly one place either copy can drift from.
+--
+--  log_id is UNIQUE so "has this session already been formalized?" is a single
+--  indexed lookup — that check is what makes "only a single AI run per
+--  student" possible: a formalize call only ever processes sessions NOT
+--  already in this table, and does nothing (no LLM call at all) once every
+--  session is.
+--
+--  ⚠ No telemetry of any kind is ever written here or read to build a prompt
+--    for this table — see supabase/functions/formalize-sessions/index.ts.
+CREATE TABLE IF NOT EXISTS "PsychE_Formalized_Sessions" (
+    id                         UUID          PRIMARY KEY DEFAULT uuid_generate_v4(),
+    log_id                     UUID          NOT NULL REFERENCES "PsychE_Counseling_Logs"(id) ON DELETE CASCADE,
+    student_uuid               UUID          NOT NULL REFERENCES "PsychE_Students"(id) ON DELETE CASCADE,
+    reason_formal              TEXT,
+    student_response_formal    TEXT,
+    recommended_action_formal  TEXT,
+    model_used                 VARCHAR(50),
+    -- One shared value per formalize-sessions invocation — lets you trace which
+    -- rows came out of the same batched LLM call without joining through
+    -- PsychE_Model_Usage_Log timestamps.
+    batch_id                   UUID,
+    formalized_at              TIMESTAMPTZ   DEFAULT NOW()
 );
 
 
@@ -348,7 +379,7 @@ ALTER TABLE "PsychE_Students" ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DE
 -- PsychE_Settings
 ALTER TABLE "PsychE_Settings" ADD COLUMN IF NOT EXISTS daily_session_capacity INT DEFAULT 15;
 ALTER TABLE "PsychE_Settings" ADD COLUMN IF NOT EXISTS allowed_pins TEXT DEFAULT '2001,0987,0999,2580';
-ALTER TABLE "PsychE_Settings" ADD COLUMN IF NOT EXISTS app_version VARCHAR(20) DEFAULT '6.4.0';
+ALTER TABLE "PsychE_Settings" ADD COLUMN IF NOT EXISTS app_version VARCHAR(20) DEFAULT '6.5.0';
 ALTER TABLE "PsychE_Settings" ADD COLUMN IF NOT EXISTS assessment_cooldown_days INT DEFAULT 30;
 ALTER TABLE "PsychE_Settings" ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
 
@@ -461,6 +492,16 @@ ALTER TABLE "PsychE_Model_Usage_Log" ADD COLUMN IF NOT EXISTS tokens_used INT;
 ALTER TABLE "PsychE_Model_Usage_Log" ADD COLUMN IF NOT EXISTS student_uuid UUID;
 ALTER TABLE "PsychE_Model_Usage_Log" ADD COLUMN IF NOT EXISTS called_at TIMESTAMPTZ DEFAULT NOW();
 
+-- PsychE_Formalized_Sessions (V12)
+ALTER TABLE "PsychE_Formalized_Sessions" ADD COLUMN IF NOT EXISTS log_id UUID;
+ALTER TABLE "PsychE_Formalized_Sessions" ADD COLUMN IF NOT EXISTS student_uuid UUID;
+ALTER TABLE "PsychE_Formalized_Sessions" ADD COLUMN IF NOT EXISTS reason_formal TEXT;
+ALTER TABLE "PsychE_Formalized_Sessions" ADD COLUMN IF NOT EXISTS student_response_formal TEXT;
+ALTER TABLE "PsychE_Formalized_Sessions" ADD COLUMN IF NOT EXISTS recommended_action_formal TEXT;
+ALTER TABLE "PsychE_Formalized_Sessions" ADD COLUMN IF NOT EXISTS model_used VARCHAR(50);
+ALTER TABLE "PsychE_Formalized_Sessions" ADD COLUMN IF NOT EXISTS batch_id UUID;
+ALTER TABLE "PsychE_Formalized_Sessions" ADD COLUMN IF NOT EXISTS formalized_at TIMESTAMPTZ DEFAULT NOW();
+
 -- Backfill scale defaults for modules created before these columns existed.
 UPDATE "PsychE_Modules" SET scale_min = 1 WHERE scale_min IS NULL;
 UPDATE "PsychE_Modules" SET scale_max = 4 WHERE scale_max IS NULL;
@@ -504,6 +545,12 @@ CREATE INDEX IF NOT EXISTS idx_sanitized_reports_student ON "PsychE_Sanitized_Se
 CREATE INDEX IF NOT EXISTS idx_model_usage_model_time    ON "PsychE_Model_Usage_Log"
                                                          (model_name, called_at DESC);
 
+-- The whole "only formalize what's pending" mechanism is this lookup: unique
+-- on log_id so "has this session been done?" is a single indexed hit, not a
+-- scan. The second index serves "all formalized sessions for student X".
+CREATE UNIQUE INDEX IF NOT EXISTS idx_formalized_sessions_log     ON "PsychE_Formalized_Sessions" (log_id);
+CREATE INDEX        IF NOT EXISTS idx_formalized_sessions_student ON "PsychE_Formalized_Sessions" (student_uuid, formalized_at DESC);
+
 
 -- =============================================================================
 --  SECTION 5 ── Row Level Security
@@ -525,7 +572,8 @@ BEGIN
     'PsychE_Questions','PsychE_Counseling_Logs','PsychE_Student_Tags',
     'PsychE_Responses','PsychE_Domains','PsychE_Student_Telemetry',
     'PsychE_Student_Notes','PsychE_AI_Reports',
-    'PsychE_Sanitized_Session_Reports','PsychE_Model_Usage_Log'
+    'PsychE_Sanitized_Session_Reports','PsychE_Model_Usage_Log',
+    'PsychE_Formalized_Sessions'
   ] LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
     -- legacy names from the superseded migration chain
@@ -1236,7 +1284,8 @@ $$;
 -- SELECT daily_session_capacity FROM "PsychE_Settings" WHERE id=1;
 -- SELECT COUNT(*) FROM "PsychE_Student_Notes";                    -- expect 0 on a new install
 -- SELECT COUNT(*) FROM "PsychE_AI_Reports";                       -- expect 0 on a new install
--- SELECT COUNT(*) FROM "PsychE_Sanitized_Session_Reports";        -- expect 0 on a new install
+-- SELECT COUNT(*) FROM "PsychE_Sanitized_Session_Reports";        -- superseded, expect 0 on a new install
+-- SELECT COUNT(*) FROM "PsychE_Formalized_Sessions";               -- expect 0 on a new install
 -- SELECT COUNT(*) FROM "PsychE_Model_Usage_Log";                  -- expect 0 on a new install
 -- SELECT proname FROM pg_proc WHERE proname LIKE 'psyche%' OR proname = 'calculate_student_telemetry';
 --   -- expect 9: psyche_compute_domain_score, psyche_get_engine_status,

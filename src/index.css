@@ -1390,7 +1390,12 @@ p, h1, h2, h3, h4, h5, h6, span {
     gap: 0.5rem !important;
     row-gap: 0.5rem !important;
   }
-  .navbar-brand { flex: 1 1 auto; min-width: 0; }
+  /* Search is hidden on mobile (.hidden-mobile), leaving the brand as the
+     only item on the navbar's first flex line — center that line and let
+     the brand size to its own content instead of stretching (flex:1) past
+     it, which would keep the logo pinned left inside the enlarged box. */
+  .navbar { justify-content: center !important; }
+  .navbar-brand { flex: 0 1 auto !important; min-width: 0; }
   .navbar-mark  { width: 32px !important; height: 32px !important; }
   .navbar-title { font-size: 0.95rem !important; }
   .navbar-sub   { display: none !important; }
@@ -1597,6 +1602,24 @@ p, h1, h2, h3, h4, h5, h6, span {
 @media (max-width: 767px) {
   .table-scroll th,
   .table-scroll td { white-space: nowrap; }
+}
+
+/* ─── Student Directory table: fixed % columns bleeding into each other ────
+   `table-layout:fixed` + `width:100%` pins every column to a share of the
+   375px viewport (56px + 25% + 15% + auto + 100px + 110px), which adds up to
+   far more than 375px. The auto "Course" column collapses toward 0 and,
+   because <th> (unlike the <td>s) never got overflow:hidden, its header text
+   rendered outside its own cell box — visually overlapping "Risk"/"Enrolled".
+   Fix: give every column an explicit floor width and let the table exceed the
+   .table-scroll wrapper so it scrolls horizontally instead of collapsing. */
+@media (max-width: 767px) {
+  .directory-table { width: auto !important; }
+  .directory-table col.col-checkbox { width: 44px !important; }
+  .directory-table col.col-name     { width: 170px !important; }
+  .directory-table col.col-id       { width: 120px !important; }
+  .directory-table col.col-course   { width: 140px !important; }
+  .directory-table col.col-risk     { width: 90px !important; }
+  .directory-table col.col-enrolled { width: 100px !important; }
 }
 
 

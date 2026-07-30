@@ -1,8 +1,11 @@
 // =============================================================================
 //  Shared telemetry banding — turns raw PsychE_Student_Telemetry numbers into
-//  the qualitative labels that are actually safe to hand an LLM. Used by both
-//  generate-ai-report (always) and generate-session-report (when the
-//  counsellor opts to include telemetry in a Formal Report).
+//  the qualitative labels that are actually safe to hand an LLM. Used by
+//  generate-ai-report only. formalize-sessions (V12) never imports this file —
+//  no telemetry of any kind enters that function's prompt; the printable
+//  telemetry export (src/components/print/PrintTelemetryBlock.tsx) is a
+//  separate, frontend-only rendering of the raw numbers, built after this
+//  banding was ruled out of scope for the Formal Timeline.
 //
 //  Nothing past buildTelemetrySummary should read metrics_payload again — if a
 //  number is needed in a prompt, it should have been banded here first.

@@ -1,66 +1,107 @@
 // =============================================================================
-//  PsychE V11 — Formal Report print view
+//  PsychE V12 — Formal Timeline print view
 //
 //  Counterpart to ReportExport.tsx (the raw statement), same print
-//  conventions (serif, black-on-white, auto-print). Renders an ALREADY
-//  GENERATED PsychE_Sanitized_Session_Reports row by id — this page never
-//  triggers generation itself, so re-opening a past report from the Formal
-//  Reports tab and printing a freshly-generated one both go through the same
-//  single code path.
+//  conventions (serif, black-on-white, auto-print). Generation and printing
+//  are fully decoupled now: this page never calls an Edge Function — it reads
+//  whatever's already in PsychE_Formalized_Sessions for the requested date
+//  range and prints it, falling back to raw text + a note for any session
+//  that hasn't been formalized yet (never silently omitted).
 //
-//  Unlike the LLM payload, this page is allowed to show the student's real
-//  name — it renders on the counsellor's own screen, the same as the raw
-//  statement does. The no-PII rule applies to what left the building for the
-//  LLM call, not to what a counsellor sees of their own student.
+//  Query params (identical names to ReportExport.tsx, for symmetry):
+//    studentId, start, end, allTime, includeTelemetry, includeSummary
 // =============================================================================
 
 import React, { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { Printer, ArrowLeft } from 'lucide-react';
-import type { SanitizedSessionReport } from '../types';
+import { PrintSessionCard } from '../components/print/PrintSessionCard';
+import { PrintTelemetryBlock } from '../components/print/PrintTelemetryBlock';
+import { PrintAISummaryBlock } from '../components/print/PrintAISummaryBlock';
+import type { FormalizedSession } from '../types';
 
 export const FormalReportExport: React.FC = () => {
   const [searchParams] = useSearchParams();
-  const reportId = searchParams.get('reportId');
   const studentId = searchParams.get('studentId');
+  const startDate = searchParams.get('start');
+  const endDate = searchParams.get('end');
+  const allTime = searchParams.get('allTime') === 'true';
+  const includeTelemetry = searchParams.get('includeTelemetry') === 'true';
+  const includeSummary = searchParams.get('includeSummary') === 'true';
   const navigate = useNavigate();
 
   const [student, setStudent] = useState<any>(null);
-  const [report, setReport] = useState<SanitizedSessionReport | null>(null);
+  const [logs, setLogs] = useState<any[]>([]);
+  const [formalizedByLogId, setFormalizedByLogId] = useState<Map<string, FormalizedSession>>(new Map());
+  const [telemetry, setTelemetry] = useState<any>(null);
+  const [engineStatus, setEngineStatus] = useState<string | null>(null);
+  const [aiSummary, setAiSummary] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     async function fetchData() {
-      if (!reportId || !studentId) { setLoading(false); return; }
+      if (!studentId) return;
+      if (!allTime && (!startDate || !endDate)) return;
+
       try {
-        const [{ data: sData, error: sErr }, { data: rData, error: rErr }] = await Promise.all([
-          supabase.from('PsychE_Students').select('*').eq('id', studentId).single(),
-          supabase.from('PsychE_Sanitized_Session_Reports')
-            .select('id, student_uuid, session_ids, report_text, report_jsonb, included_telemetry, included_summary, model_used, generated_at')
-            .eq('id', reportId).single(),
-        ]);
-        if (sErr) throw sErr;
-        if (rErr) throw rErr;
-        setStudent(sData);
-        setReport(rData as SanitizedSessionReport);
-      } catch (err: any) {
-        setError(err.message ?? 'Failed to load report');
+        const { data: sData } = await supabase.from('PsychE_Students').select('*').eq('id', studentId).single();
+        if (sData) setStudent(sData);
+
+        let query = supabase
+          .from('PsychE_Counseling_Logs')
+          .select('*')
+          .eq('student_uuid', studentId)
+          .eq('session_status', 'Completed')
+          .order('session_date', { ascending: true });
+
+        if (!allTime && startDate && endDate) {
+          const startIso = new Date(startDate).toISOString();
+          const endD = new Date(endDate);
+          endD.setHours(23, 59, 59, 999);
+          query = query.gte('session_date', startIso).lte('session_date', endD.toISOString());
+        }
+
+        const { data: lData } = await query;
+        const logsInRange = lData ?? [];
+        setLogs(logsInRange);
+
+        if (logsInRange.length > 0) {
+          const { data: fData } = await supabase
+            .from('PsychE_Formalized_Sessions')
+            .select('id, log_id, student_uuid, reason_formal, student_response_formal, recommended_action_formal, model_used, formalized_at')
+            .in('log_id', logsInRange.map((l) => l.id));
+          setFormalizedByLogId(new Map((fData ?? []).map((f: FormalizedSession) => [f.log_id, f])));
+        }
+
+        if (includeTelemetry) {
+          const [{ data: tData }, { data: statusData }] = await Promise.all([
+            supabase.from('PsychE_Student_Telemetry').select('*')
+              .eq('student_uuid', studentId).order('calculated_at', { ascending: false }).limit(1).maybeSingle(),
+            supabase.rpc('psyche_get_engine_status', { p_student_uuid: studentId }),
+          ]);
+          setTelemetry(tData ?? null);
+          setEngineStatus(typeof statusData === 'string' ? statusData : null);
+        }
+
+        if (includeSummary) {
+          const { data: rData } = await supabase.from('PsychE_AI_Reports').select('report_jsonb')
+            .eq('student_uuid', studentId).order('generated_at', { ascending: false }).limit(1).maybeSingle();
+          setAiSummary(rData?.report_jsonb ?? null);
+        }
+      } catch (error) {
+        console.error('Failed to fetch formal report data', error);
       } finally {
         setLoading(false);
         setTimeout(() => window.print(), 500);
       }
     }
     fetchData();
-  }, [reportId, studentId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [studentId, startDate, endDate, allTime, includeTelemetry, includeSummary]);
 
-  if (loading) return <div style={{ padding: '2rem', textAlign: 'center' }}>Loading report...</div>;
-  if (error || !student || !report) {
-    return <div style={{ padding: '2rem', textAlign: 'center' }}>Report not found or invalid parameters.</div>;
-  }
-
-  const paragraphs = report.report_text.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
+  if (loading) return <div style={{ padding: '2rem', textAlign: 'center' }}>Generating Report...</div>;
+  if (!student) return <div style={{ padding: '2rem', textAlign: 'center' }}>Student not found or invalid parameters.</div>;
 
   return (
     <div style={{ backgroundColor: '#fff', color: '#000', minHeight: '100vh', padding: '2rem' }}>
@@ -69,20 +110,20 @@ export const FormalReportExport: React.FC = () => {
           <ArrowLeft size={16} style={{ display: 'inline', marginRight: '0.5rem' }} /> Back
         </button>
         <button onClick={() => window.print()} className="btn btn-primary" style={{ padding: '0.5rem 1rem' }}>
-          <Printer size={16} style={{ display: 'inline', marginRight: '0.5rem' }} /> Print Report
+          <Printer size={16} style={{ display: 'inline', marginRight: '0.5rem' }} /> Print Statement
         </button>
       </div>
 
       <div style={{ maxWidth: '800px', margin: '0 auto', fontFamily: 'serif' }}>
         <div style={{ borderBottom: '2px solid #000', paddingBottom: '1rem', marginBottom: '2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
           <div>
-            <h1 style={{ margin: 0, fontSize: '2rem', fontWeight: 'bold' }}>UPsych : GCM Edition Formal Report</h1>
-            <p style={{ margin: '0.5rem 0 0 0', fontSize: '1rem', color: '#555' }}>AI-Synthesised Session Summary</p>
+            <h1 style={{ margin: 0, fontSize: '2rem', fontWeight: 'bold' }}>UPsych : GCM Edition Formal Timeline</h1>
+            <p style={{ margin: '0.5rem 0 0 0', fontSize: '1rem', color: '#555' }}>Counseling & Assessment Statement — Formal</p>
           </div>
           <div style={{ textAlign: 'right', fontSize: '0.875rem' }}>
-            <p style={{ margin: 0 }}><strong>Generated:</strong> {new Date(report.generated_at).toLocaleDateString()}</p>
+            <p style={{ margin: 0 }}><strong>Generated:</strong> {new Date().toLocaleDateString()}</p>
             <p style={{ margin: '0.25rem 0 0 0' }}>
-              <strong>Sessions covered:</strong> {report.session_ids.length}
+              <strong>Period:</strong> {allTime ? 'Full History (All Time)' : `${new Date(startDate!).toLocaleDateString()} - ${new Date(endDate!).toLocaleDateString()}`}
             </p>
           </div>
         </div>
@@ -94,27 +135,52 @@ export const FormalReportExport: React.FC = () => {
             <p style={{ margin: 0 }}><strong>Course/Grade:</strong> {student.course}</p>
           </div>
           <div>
-            <p style={{ margin: '0 0 0.5rem 0' }}>
-              <strong>Includes telemetry context:</strong> {report.included_telemetry ? 'Yes' : 'No'}
-            </p>
-            <p style={{ margin: 0 }}>
-              <strong>Includes AI summary context:</strong> {report.included_summary ? 'Yes' : 'No'}
-            </p>
+            <p style={{ margin: '0 0 0.5rem 0' }}><strong>Risk Level:</strong> {student.risk_level}</p>
+            <p style={{ margin: '0 0 0.5rem 0' }}><strong>Contact:</strong> {student.mobile || 'N/A'}</p>
+            <p style={{ margin: 0 }}><strong>Parent/Guardian:</strong> {student.fathers_name || student.mothers_name || 'N/A'}</p>
           </div>
         </div>
 
-        <h2 style={{ fontSize: '1.25rem', borderBottom: '1px solid #ccc', paddingBottom: '0.5rem', marginBottom: '1.5rem' }}>
-          Session Report
-        </h2>
+        {includeSummary && aiSummary && <PrintAISummaryBlock report={aiSummary} />}
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', fontSize: '0.95rem', lineHeight: '1.7' }}>
-          {paragraphs.map((p, i) => <p key={i} style={{ margin: 0 }}>{p}</p>)}
-        </div>
+        {includeTelemetry && (
+          <PrintTelemetryBlock
+            metricsPayload={telemetry?.metrics_payload ?? null}
+            etiScore={telemetry?.eti_score ?? null}
+            etiData={telemetry?.eti_data ?? null}
+            compositeScore={telemetry?.composite_score ?? null}
+            compositeConfidence={telemetry?.composite_confidence ?? null}
+            rsiScore={telemetry?.rsi_score ?? null}
+            engineStatus={engineStatus}
+          />
+        )}
+
+        <h2 style={{ fontSize: '1.25rem', borderBottom: '1px solid #ccc', paddingBottom: '0.5rem', marginBottom: '1.5rem' }}>Session Timeline (Formal)</h2>
+
+        {logs.length === 0 ? (
+          <p style={{ fontStyle: 'italic', color: '#666' }}>No completed sessions found in this date range.</p>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+            {logs.map((log) => {
+              const formalized = formalizedByLogId.get(log.id);
+              return (
+                <PrintSessionCard
+                  key={log.id}
+                  log={log}
+                  reasonText={formalized ? (formalized.reason_formal ?? log.reason) : undefined}
+                  notesText={formalized ? (formalized.student_response_formal ?? log.student_response) : undefined}
+                  actionText={formalized ? (formalized.recommended_action_formal ?? log.recommended_action) : undefined}
+                  notFormalizedNote={!formalized}
+                />
+              );
+            })}
+          </div>
+        )}
 
         <div style={{ marginTop: '3rem', paddingTop: '1rem', borderTop: '2px solid #000', textAlign: 'center', fontSize: '0.875rem', color: '#777' }}>
           <p style={{ margin: 0 }}>
-            This report was synthesised by AI from redacted session data. It supplements, and does not
-            replace, the counsellor's own clinical judgement.
+            Formal entries are AI-rewritten from redacted session text; raw entries (marked above) are shown verbatim.
+            This supplements, and does not replace, the counsellor's own clinical judgement.
           </p>
           <p style={{ margin: '0.25rem 0 0 0' }}>UPsych : GCM Edition • Confidential Record</p>
         </div>

@@ -601,14 +601,14 @@ export const StudentDirectory: React.FC = () => {
             <p style={{ textAlign: 'center', padding: '3rem', color: 'var(--color-text-muted)' }}>Loading directory...</p>
           ) : (
             <div className="table-scroll" style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+              <table className="directory-table" style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
                 <colgroup>
-                  <col style={{ width: '56px' }} />
-                  <col style={{ width: '25%' }} />
-                  <col style={{ width: '15%' }} />
-                  <col />
-                  <col style={{ width: '100px' }} />
-                  <col style={{ width: '110px' }} />
+                  <col className="col-checkbox" style={{ width: '56px' }} />
+                  <col className="col-name" style={{ width: '25%' }} />
+                  <col className="col-id" style={{ width: '15%' }} />
+                  <col className="col-course" />
+                  <col className="col-risk" style={{ width: '100px' }} />
+                  <col className="col-enrolled" style={{ width: '110px' }} />
                 </colgroup>
                 <thead>
                   <tr style={{ borderBottom: '1px solid var(--color-border)', backgroundColor: 'rgba(0,0,0,0.15)' }}>
