@@ -1,11 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Edit2, Calendar, Phone, Mail, BookOpen, ArrowLeft, Eye, EyeOff, User, BrainCircuit, ChevronDown, ChevronUp, FileDown, X, Tag, Plus, Activity, Sparkles, AlertTriangle } from 'lucide-react';
+import { Edit2, Calendar, Phone, Mail, BookOpen, ArrowLeft, Eye, EyeOff, User, BrainCircuit, ChevronDown, ChevronUp, FileDown, X, Tag, Plus, Activity, Sparkles, AlertTriangle, FileText } from 'lucide-react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { AssessmentWizard } from '../components/AssessmentWizard';
-import type { TelemetryPayload } from '../types';
+import type { AIReport, NoteKind, SanitizedSessionReport, StudentNote, TelemetryPayload } from '../types';
 import { MIN_COMPOSITE_CONFIDENCE } from '../types';
+import { MiniNotesPanel } from '../components/MiniNotes';
+import {
+  createNote, deleteNote, fetchStudentNotes, setNoteDone, setNotePinned, sortNotes, updateNoteBody
+} from '../lib/studentNotes';
+import { AIReportPanel } from '../components/AIReportPanel';
+import { fetchLatestReport, generateReport } from '../lib/aiReports';
+import { AISummaryCard } from '../components/AISummaryCard';
+import { FormalReportsPanel } from '../components/FormalReportsPanel';
+import { fetchSessionReports, generateSessionReport } from '../lib/sessionReports';
 import {
   EvidenceStrip, DomainProfile, TensionStrip, EngagementPanel,
   CompositeContribution, RsiPanel
@@ -78,7 +87,9 @@ export const StudentProfile: React.FC = () => {
   // Telemetry State
   const [telemetry, setTelemetry] = useState<TelemetryPayload | null>(null);
   const [engineStatus, setEngineStatus] = useState<EngineStatus | null>(null);
-  const [activeTab, setActiveTab] = useState<'profile' | 'telemetry'>('profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'history' | 'telemetry' | 'summary'>('profile');
+  const [historyView, setHistoryView] = useState<'raw' | 'formal'>('raw');
+  const [summaryView, setSummaryView] = useState<'quick' | 'technical'>('quick');
 
   // V7.2 — supporting evidence for the redesigned telemetry tab
   const [telemetryHistory, setTelemetryHistory] = useState<TelemetryHistoryRow[]>([]);
@@ -86,10 +97,38 @@ export const StudentProfile: React.FC = () => {
   const [instrumented, setInstrumented] = useState<Record<string, boolean>>({});
 
   // Date Range Report States
+  // ---- V9 Mini Notes -----------------------------------------------------
+  const [notes, setNotes] = useState<StudentNote[]>([]);
+  const [notesLoading, setNotesLoading] = useState(true);
+  const [notesError, setNotesError] = useState<string | null>(null);
+  const [noteSaving, setNoteSaving] = useState(false);
+  const [noteComposerError, setNoteComposerError] = useState<string | null>(null);
+  const [editingNote, setEditingNote] = useState<StudentNote | null>(null);
+
+  // ---- V10 AI Technical Report --------------------------------------------
+  const [aiReport, setAiReport] = useState<AIReport | null>(null);
+  const [aiReportLoading, setAiReportLoading] = useState(true);
+  const [aiReportError, setAiReportError] = useState<string | null>(null);
+  const [aiGenerating, setAiGenerating] = useState(false);
+  const [aiGenerateError, setAiGenerateError] = useState<string | null>(null);
+  const [aiInsufficientData, setAiInsufficientData] = useState(false);
+  const [aiCooldownActive, setAiCooldownActive] = useState(false);
+  const [aiCooldownEndsAt, setAiCooldownEndsAt] = useState<string | null>(null);
+
+  // ---- V11 AI panel tabs + Formal (Sanitized Session) Reports -------------
+  const [sessionReports, setSessionReports] = useState<SanitizedSessionReport[]>([]);
+  const [sessionReportsLoading, setSessionReportsLoading] = useState(true);
+  const [sessionReportsError, setSessionReportsError] = useState<string | null>(null);
+
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  const [reportKind, setReportKind] = useState<'raw' | 'formal'>('raw');
   const [reportType, setReportType] = useState('custom');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+  const [formalIncludeTelemetry, setFormalIncludeTelemetry] = useState(false);
+  const [formalIncludeSummary, setFormalIncludeSummary] = useState(false);
+  const [formalGenerating, setFormalGenerating] = useState(false);
+  const [formalGenerateError, setFormalGenerateError] = useState<string | null>(null);
   useEffect(() => {
     document.title = "UPsych : GCM Edition | Student Profile";
   }, []);
@@ -240,6 +279,147 @@ export const StudentProfile: React.FC = () => {
   }, [studentId]);
 
   /**
+   * Mini Notes (V9).
+   *
+   * Deliberately its own effect rather than a step inside fetchStudentProfile:
+   * that function wraps everything in one try/catch, so a missing
+   * PsychE_Student_Notes table — a database that has not had the 6.2 installer
+   * run against it — would throw and take the entire profile down with it. A
+   * counsellor should never lose the student record because a notes table is
+   * absent. Here the failure is contained and reported inside the notes card.
+   */
+  useEffect(() => {
+    if (!student?.id) return;
+    let cancelled = false;
+
+    (async () => {
+      setNotesLoading(true);
+      const { data, error } = await fetchStudentNotes(student.id);
+      if (cancelled) return;
+      setNotes(data);
+      setNotesError(error);
+      setNotesLoading(false);
+    })();
+
+    return () => { cancelled = true; };
+  }, [student?.id]);
+
+  /** Replace one note in place, preserving the pinned-first / newest-first order. */
+  const mergeNote = (updated: StudentNote) =>
+    setNotes(prev => sortNotes(prev.map(n => (n.id === updated.id ? updated : n))));
+
+  const handleCreateNote = async (body: string, kind: NoteKind) => {
+    if (!student?.id) return;
+    setNoteSaving(true);
+    setNoteComposerError(null);
+    const { data, error } = await createNote({ studentUuid: student.id, body, kind });
+    setNoteSaving(false);
+    if (error || !data) { setNoteComposerError(error ?? 'Could not save that note.'); return; }
+    setNotes(prev => sortNotes([data, ...prev]));
+  };
+
+  const handleUpdateNote = async (note: StudentNote, body: string, kind: NoteKind) => {
+    setNoteSaving(true);
+    setNoteComposerError(null);
+    const { data, error } = await updateNoteBody(note.id, body, kind);
+    setNoteSaving(false);
+    if (error || !data) { setNoteComposerError(error ?? 'Could not save that note.'); return; }
+    mergeNote(data);
+    setEditingNote(null);
+  };
+
+  const handleToggleNoteDone = async (note: StudentNote) => {
+    const { data, error } = await setNoteDone(note.id, !note.is_done);
+    if (error || !data) { setNotesError(error ?? 'Could not update that note.'); return; }
+    setNotesError(null);
+    mergeNote(data);
+  };
+
+  const handleToggleNotePin = async (note: StudentNote) => {
+    const { data, error } = await setNotePinned(note.id, !note.is_pinned);
+    if (error || !data) { setNotesError(error ?? 'Could not update that note.'); return; }
+    setNotesError(null);
+    mergeNote(data);
+  };
+
+  const handleDeleteNote = async (note: StudentNote) => {
+    // Resolving is the normal path and is reversible; deleting is not, so it
+    // gets the same confirm gate as deleting a session.
+    if (!window.confirm('Delete this note permanently? Marking it done keeps it in the archive instead.')) return;
+    const { error } = await deleteNote(note.id);
+    if (error) { setNotesError(error); return; }
+    setNotesError(null);
+    setNotes(prev => prev.filter(n => n.id !== note.id));
+    if (editingNote?.id === note.id) setEditingNote(null);
+  };
+
+  /**
+   * AI Technical Report (V10).
+   *
+   * Own effect, same reasoning as Mini Notes above: a database that hasn't had
+   * the 6.3 migration run against it must not take the whole profile down
+   * just because PsychE_AI_Reports doesn't exist yet.
+   */
+  useEffect(() => {
+    if (!student?.id) return;
+    let cancelled = false;
+
+    (async () => {
+      setAiReportLoading(true);
+      const { data, error } = await fetchLatestReport(student.id);
+      if (cancelled) return;
+      setAiReport(data);
+      setAiReportError(error);
+      setAiReportLoading(false);
+    })();
+
+    return () => { cancelled = true; };
+  }, [student?.id]);
+
+  const handleGenerateAIReport = async () => {
+    if (!student?.id) return;
+    setAiGenerating(true);
+    setAiGenerateError(null);
+    setAiInsufficientData(false);
+    setAiCooldownActive(false);
+    setAiCooldownEndsAt(null);
+
+    const { data, error, insufficientData, cooldownActive, cooldownEndsAt } = await generateReport(student.id);
+    setAiGenerating(false);
+
+    if (error) { setAiGenerateError(error); return; }
+    if (insufficientData) { setAiInsufficientData(true); return; }
+    if (cooldownActive) {
+      setAiCooldownActive(true);
+      setAiCooldownEndsAt(cooldownEndsAt ?? null);
+      if (data) setAiReport(data);
+      return;
+    }
+    if (data) setAiReport(data);
+  };
+
+  /** Formal (Sanitized Session) Reports (V11) — own effect, same isolation reasoning as the two above. */
+  useEffect(() => {
+    if (!student?.id) return;
+    let cancelled = false;
+
+    (async () => {
+      setSessionReportsLoading(true);
+      const { data, error } = await fetchSessionReports(student.id);
+      if (cancelled) return;
+      setSessionReports(data);
+      setSessionReportsError(error);
+      setSessionReportsLoading(false);
+    })();
+
+    return () => { cancelled = true; };
+  }, [student?.id]);
+
+  const handleOpenSessionReport = (report: SanitizedSessionReport) => {
+    navigate(`/formal-report?studentId=${student.id}&reportId=${report.id}`);
+  };
+
+  /**
    * Close (or cancel) a scheduled follow-up.
    *
    * Until V6 there was NO write path that set follow_up_status to anything but
@@ -290,15 +470,41 @@ export const StudentProfile: React.FC = () => {
     return `${maskedName}@${parts[1]}`;
   };
 
-  const handleGenerateReport = () => {
-    if (reportType === 'allTime') {
-      navigate(`/report?studentId=${student.id}&allTime=true`);
-    } else {
-      if (!startDate || !endDate) {
-        alert("Please select both start and end dates.");
-        return;
-      }
-      navigate(`/report?studentId=${student.id}&start=${startDate}&end=${endDate}`);
+  const handleGenerateReport = async () => {
+    if (reportType !== 'allTime' && (!startDate || !endDate)) {
+      alert("Please select both start and end dates.");
+      return;
+    }
+
+    if (reportKind === 'raw') {
+      if (reportType === 'allTime') navigate(`/report?studentId=${student.id}&allTime=true`);
+      else navigate(`/report?studentId=${student.id}&start=${startDate}&end=${endDate}`);
+      return;
+    }
+
+    // Formal — calls the Edge Function directly rather than navigating first,
+    // since the print view (FormalReportExport) only ever renders an ALREADY
+    // generated row by id. Generation and printing are one action here, but
+    // re-opening the same report later from the Formal Reports tab reuses the
+    // exact same print route with no regeneration.
+    setFormalGenerating(true);
+    setFormalGenerateError(null);
+    const { data, error, noSessions } = await generateSessionReport({
+      studentUuid: student.id,
+      allTime: reportType === 'allTime',
+      startDate: reportType === 'allTime' ? undefined : startDate,
+      endDate: reportType === 'allTime' ? undefined : endDate,
+      includeTelemetry: formalIncludeTelemetry,
+      includeSummary: formalIncludeSummary,
+    });
+    setFormalGenerating(false);
+
+    if (error) { setFormalGenerateError(error); return; }
+    if (noSessions) { setFormalGenerateError('No completed sessions found in this range.'); return; }
+    if (data) {
+      setSessionReports(prev => [data, ...prev]);
+      setIsReportModalOpen(false);
+      navigate(`/formal-report?studentId=${student.id}&reportId=${data.id}`);
     }
   };
 
@@ -391,30 +597,59 @@ export const StudentProfile: React.FC = () => {
         </div>
       </motion.div>
 
-      {/* Tabs */}
+      {/* Tabs — Profile (static reference) / History (what happened) / Telemetry
+          (the numbers) / Summary (what the AI thinks). History and Summary each
+          carry their own Raw-vs-Formal / Quick-vs-Technical toggle rather than
+          becoming yet more top-level tabs — one "fast view / deep view" pattern,
+          reused twice, is easier to learn than a flat pile of destinations. */}
       <div className="flex gap-4 mb-6" style={{ borderBottom: '1px solid var(--color-border)', paddingBottom: '0.5rem' }}>
-        <button 
-          onClick={() => setActiveTab('profile')} 
-          style={{ 
+        <button
+          onClick={() => setActiveTab('profile')}
+          style={{
             background: 'none', border: 'none', cursor: 'pointer', padding: '0.5rem 1rem',
             fontWeight: 600, color: activeTab === 'profile' ? 'var(--color-text)' : 'var(--color-text-muted)',
             borderBottom: activeTab === 'profile' ? '2px solid var(--color-primary)' : '2px solid transparent',
             transition: 'all 0.2s'
           }}
         >
-          Profile & History
+          <User size={16} style={{ display: 'inline', marginRight: '0.5rem', marginBottom: '2px' }} />
+          Profile
         </button>
-        <button 
-          onClick={() => setActiveTab('telemetry')} 
-          style={{ 
+        <button
+          onClick={() => setActiveTab('history')}
+          style={{
+            background: 'none', border: 'none', cursor: 'pointer', padding: '0.5rem 1rem',
+            fontWeight: 600, color: activeTab === 'history' ? 'var(--color-text)' : 'var(--color-text-muted)',
+            borderBottom: activeTab === 'history' ? '2px solid var(--color-primary)' : '2px solid transparent',
+            transition: 'all 0.2s'
+          }}
+        >
+          <BookOpen size={16} style={{ display: 'inline', marginRight: '0.5rem', marginBottom: '2px' }} />
+          History
+        </button>
+        <button
+          onClick={() => setActiveTab('telemetry')}
+          style={{
             background: 'none', border: 'none', cursor: 'pointer', padding: '0.5rem 1rem',
             fontWeight: 600, color: activeTab === 'telemetry' ? 'var(--color-text)' : 'var(--color-text-muted)',
             borderBottom: activeTab === 'telemetry' ? '2px solid var(--color-primary)' : '2px solid transparent',
             transition: 'all 0.2s'
           }}
         >
+          <Activity size={16} style={{ display: 'inline', marginRight: '0.5rem', marginBottom: '2px' }} />
+          Telemetry
+        </button>
+        <button
+          onClick={() => setActiveTab('summary')}
+          style={{
+            background: 'none', border: 'none', cursor: 'pointer', padding: '0.5rem 1rem',
+            fontWeight: 600, color: activeTab === 'summary' ? 'var(--color-text)' : 'var(--color-text-muted)',
+            borderBottom: activeTab === 'summary' ? '2px solid var(--color-primary)' : '2px solid transparent',
+            transition: 'all 0.2s'
+          }}
+        >
           <Sparkles size={16} style={{ display: 'inline', marginRight: '0.5rem', marginBottom: '2px' }} />
-          Telemetry Analytics
+          Summary
         </button>
       </div>
 
@@ -540,12 +775,290 @@ export const StudentProfile: React.FC = () => {
             )}
           </div>
         </motion.div>
-        {/* End of Personal Details for profile tab. We DO NOT close the fragment here because History Timeline is also in this tab! */}
 
-        {/* ── Clinical Telemetry & Radar Cockpit Card ── */}
-        {/* This block is only shown in the telemetry tab! */}
-        </>
+        {/* ── Mini Notes (V9) ──────────────────────────────────────────────
+            Placed above the history timeline on purpose: what you told
+            yourself to do next is more useful than what already happened. */}
+        <motion.div variants={item} className="bento-card col-span-12">
+          <MiniNotesPanel
+            notes={notes}
+            loading={notesLoading}
+            error={notesError}
+            saving={noteSaving}
+            composerError={noteComposerError}
+            editing={editingNote}
+            onCreate={handleCreateNote}
+            onUpdate={handleUpdateNote}
+            onToggleDone={handleToggleNoteDone}
+            onTogglePin={handleToggleNotePin}
+            onDelete={handleDeleteNote}
+            onStartEdit={(n) => { setEditingNote(n); setNoteComposerError(null); }}
+          />
+        </motion.div>
+
+          </>
         )}
+
+        {/* ── History tab: Raw Timeline ↔ Formal Reports ──────────────────
+            Two renderings of "what happened" — the verbatim log, and the
+            AI-narrativized, redacted write-up. Same toggle idiom as Summary
+            below, so a counsellor learns "fast view / deep view" once. */}
+        {activeTab === 'history' && (
+          <motion.div variants={item} className="bento-card col-span-12">
+            <div className="sub-toggle no-print">
+              <button
+                type="button"
+                className={`sub-toggle-btn ${historyView === 'raw' ? 'sub-toggle-btn--active' : ''}`}
+                onClick={() => setHistoryView('raw')}
+              >
+                Raw Timeline
+              </button>
+              <button
+                type="button"
+                className={`sub-toggle-btn ${historyView === 'formal' ? 'sub-toggle-btn--active' : ''}`}
+                onClick={() => setHistoryView('formal')}
+              >
+                <FileText size={13} /> Formal Reports
+                {sessionReports.length > 0 && <span className="pill pill--muted">{sessionReports.length}</span>}
+              </button>
+            </div>
+
+            {historyView === 'raw' ? (
+              <>
+                <div className="flex justify-between items-center mb-6 mobile-stack mobile-stack-start" style={{ gap: '1rem' }}>
+                  <h3 className="text-h3">Counseling History</h3>
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => navigate(`/add-log?student=${student.id}`)}
+                    className="btn btn-secondary no-print"
+                    style={{ padding: '0.5rem 1rem', fontSize: '0.875rem', borderColor: 'var(--color-primary)', color: 'var(--color-primary)' }}
+                  >
+                    + Log Session
+                  </motion.button>
+                </div>
+
+                <div style={{ position: 'relative', paddingLeft: '1rem' }}>
+                  <div className="no-print" style={{ position: 'absolute', left: 0, top: '1rem', bottom: 0, width: '2px', backgroundColor: 'var(--color-border)' }}></div>
+
+                  <AnimatePresence>
+                    <div className="flex" style={{ flexDirection: 'column', gap: '2rem' }}>
+                      {logs.length === 0 ? (
+                        <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-muted py-4">No counseling logs found for this student.</motion.p>
+                      ) : (
+                        logs.map((item, index) => {
+                          const isDraft = item.session_status === 'Draft';
+                          const hasAssessments = item.assessment_data && item.assessment_data.length > 0;
+                          const isExpanded = expandedLogs.has(item.id);
+
+                          return (
+                            <motion.div
+                              key={item.id}
+                              initial={{ opacity: 0, x: -20 }}
+                              animate={{ opacity: 1, x: 0 }}
+                              transition={{ delay: index * 0.1, type: 'spring', stiffness: 300 }}
+                              className="print-timeline-item"
+                              style={{ position: 'relative', paddingLeft: '2rem' }}
+                            >
+                              {/* Timeline Dot */}
+                              <div className="no-print" style={{
+                                position: 'absolute', left: '-21px', top: '5px', width: '12px', height: '12px', borderRadius: '50%',
+                                backgroundColor: isDraft ? '#f59e0b' : hasAssessments ? '#10b981' : 'var(--color-primary)',
+                                border: '2px solid var(--color-surface)'
+                              }}></div>
+
+                              <div className="flex justify-between items-start mb-2">
+                                <div>
+                                  <div className="flex items-center gap-2 mb-1">
+                                    {isDraft && (
+                                      <span style={{ fontSize: '0.75rem', padding: '0.1rem 0.5rem', backgroundColor: 'rgba(245, 158, 11, 0.1)', border: '1px solid rgba(245, 158, 11, 0.2)', borderRadius: '4px', color: '#f59e0b' }}>
+                                        Draft
+                                      </span>
+                                    )}
+                                    <span style={{ fontSize: '0.75rem', padding: '0.1rem 0.5rem', backgroundColor: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: '4px', color: 'var(--color-primary)' }}>
+                                      {item.interaction_type || 'Session'}
+                                    </span>
+                                    {hasAssessments && !isDraft && (
+                                      <span style={{ fontSize: '0.75rem', padding: '0.1rem 0.5rem', backgroundColor: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.2)', borderRadius: '4px', color: '#10b981', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                        <BrainCircuit size={10} /> Assessment
+                                      </span>
+                                    )}
+                                  </div>
+                                  <h4 className="text-h3" style={{ fontSize: '1.25rem' }}>{item.reason}</h4>
+                                  <p className="text-muted" style={{ fontSize: '0.875rem' }}>{item.counselor_name} • {new Date(item.session_date).toLocaleString()}</p>
+                                </div>
+
+                                {/* Action Button: Resume Draft or Expand Assessments */}
+                                {isDraft ? (
+                                  <button
+                                    onClick={() => {
+                                      if (item.interaction_type === 'Session' && (!item.student_response || item.student_response === 'Draft Assessment')) {
+                                        // Navigate to /add-log to resume an embedded draft to ensure clinical notes are filled
+                                        navigate(`/add-log?schedule_id=${item.id}&student=${student.id}`);
+                                      } else {
+                                        setActiveAssessmentId('draft'); // Dummy ID to trigger wizard mount
+                                        setActiveDraftLogId(item.id);
+                                      }
+                                    }}
+                                    className="btn btn-secondary"
+                                    style={{ padding: '0.25rem 0.75rem', fontSize: '0.875rem', color: '#f59e0b', borderColor: 'transparent', backgroundColor: 'rgba(245, 158, 11, 0.1)' }}
+                                  >
+                                    Resume Draft
+                                  </button>
+                                ) : hasAssessments ? (
+                                  <button
+                                    onClick={() => toggleExpand(item.id)}
+                                    className="btn btn-secondary"
+                                    style={{ padding: '0.25rem 0.75rem', fontSize: '0.875rem', backgroundColor: 'transparent', border: '1px solid var(--color-border)' }}
+                                  >
+                                    {isExpanded ? <><ChevronUp size={14} /> Collapse</> : <><ChevronDown size={14} /> Expand</>}
+                                  </button>
+                                ) : null}
+                              </div>
+
+                              {/* Collapsed Assessment View */}
+                              {!isDraft && hasAssessments && !isExpanded && (
+                                <div style={{ backgroundColor: 'rgba(16, 185, 129, 0.05)', padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)', border: '1px solid rgba(16, 185, 129, 0.2)', display: 'flex', flexWrap: 'wrap', gap: '1rem' }}>
+                                  {(item.assessment_data as any[]).map((a: any, i: number) => {
+                                    const rawScoreValues = Object.values(a.responses) as number[];
+                                    const totalScore = rawScoreValues.reduce((sum, val) => sum + (val || 0), 0);
+                                    const totalQs = a.total_questions || 8;
+                                    const maxPossible = (a.type === 'COMPE' || a.type === 'MIX') ? totalQs * 4 : 'N/A';
+                                    const percentage = maxPossible !== 'N/A' && maxPossible > 0 ? Math.round((totalScore / (maxPossible as number)) * 100) : null;
+                                    return (
+                                      <span key={i} style={{ fontSize: '0.875rem', fontWeight: 500, color: '#10b981' }}>
+                                        {a.title}: {percentage !== null ? `${percentage}%` : totalScore}
+                                      </span>
+                                    );
+                                  })}
+                                </div>
+                              )}
+
+                              {/* Expanded Notes and Receipt */}
+                              {(!hasAssessments || isExpanded) && !isDraft && (
+                                <motion.div
+                                  initial={{ opacity: 0, height: 0 }}
+                                  animate={{ opacity: 1, height: 'auto' }}
+                                  className="print-notes"
+                                  style={{ backgroundColor: 'var(--color-bg)', padding: '1.25rem', borderRadius: 'var(--radius-md)', marginTop: '0.5rem', border: '1px solid var(--color-border)', overflow: 'hidden' }}
+                                >
+                                  <div className="mb-4">
+                                    <p className="text-muted" style={{ fontSize: '0.75rem', textTransform: 'uppercase', marginBottom: '0.5rem', letterSpacing: '0.05em' }}>Session Notes & Student Response</p>
+                                    <p className="text-body" style={{ whiteSpace: 'pre-line', lineHeight: '1.6' }}>{item.student_response || 'No notes provided.'}</p>
+                                  </div>
+
+                                  {hasAssessments && (
+                                    <div className="mb-4">
+                                      <p className="text-muted" style={{ fontSize: '0.75rem', textTransform: 'uppercase', marginBottom: '0.5rem', letterSpacing: '0.05em' }}>Full Assessment Receipt</p>
+                                      {(item.assessment_data as any[]).map((a: any, i: number) => (
+                                        <div key={i} style={{ backgroundColor: 'rgba(0,0,0,0.1)', padding: '1rem', borderRadius: 'var(--radius-sm)', marginBottom: '0.5rem' }}>
+                                          <h5 style={{ fontSize: '0.875rem', color: 'var(--color-primary)', marginBottom: '0.75rem' }}>{a.title}</h5>
+                                          {Object.entries(a.responses).map(([q, ans]: any, j) => (
+                                            <div key={j} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.5rem', backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: '4px', fontSize: '0.875rem', marginBottom: '2px' }}>
+                                              <span style={{ color: 'var(--color-text-muted)', flex: 1, paddingRight: '1rem' }}>{q}</span>
+                                              <strong style={{ color: '#10b981', minWidth: '30px', textAlign: 'right' }}>{ans}</strong>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+
+                                  <div className="flex gap-4 flex-wrap">
+                                    <div className="print-action" style={{ flex: 1, backgroundColor: 'rgba(74, 222, 128, 0.1)', color: 'var(--color-success)', padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)', fontSize: '0.875rem', fontWeight: 500, minWidth: '200px' }}>
+                                      <span style={{ fontSize: '0.75rem', display: 'block', opacity: 0.8, marginBottom: '4px', letterSpacing: '0.05em' }}>RECOMMENDED ACTION</span>
+                                      {item.recommended_action || 'None'}
+                                    </div>
+                                    {item.follow_up_date && (() => {
+                                      const st = item.follow_up_status || 'Pending';
+                                      const closed = st === 'Done' || st === 'Cancelled';
+                                      const tone = st === 'Done' ? { bg: 'rgba(63, 201, 143, 0.1)', fg: 'var(--color-success)' }
+                                        : st === 'Cancelled' ? { bg: 'rgba(255,255,255,0.04)', fg: 'var(--color-text-muted)' }
+                                          : { bg: 'rgba(245, 158, 11, 0.1)', fg: '#f59e0b' };
+                                      return (
+                                        <div className="print-action" style={{ flex: 1, backgroundColor: tone.bg, color: tone.fg, padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)', fontSize: '0.875rem', fontWeight: 500, minWidth: '200px' }}>
+                                          <span style={{ fontSize: '0.75rem', display: 'block', opacity: 0.8, marginBottom: '4px', letterSpacing: '0.05em' }}>FOLLOW-UP ({st})</span>
+                                          {new Date(item.follow_up_date).toLocaleDateString()}
+                                          {!closed && (
+                                            <div className="no-print" style={{ display: 'flex', gap: '0.4rem', marginTop: '0.5rem' }}>
+                                              <button
+                                                onClick={(e) => { e.stopPropagation(); setFollowUpStatus(item.id, 'Done'); }}
+                                                style={{ cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600, padding: '0.2rem 0.6rem', borderRadius: 'var(--radius-full)', border: '1px solid rgba(63,201,143,0.4)', background: 'rgba(63,201,143,0.12)', color: 'var(--color-success)' }}
+                                                title="Mark this follow-up as completed — restores the student's follow-through score"
+                                              >✓ Mark Done</button>
+                                              <button
+                                                onClick={(e) => { e.stopPropagation(); setFollowUpStatus(item.id, 'Cancelled'); }}
+                                                style={{ cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600, padding: '0.2rem 0.6rem', borderRadius: 'var(--radius-full)', border: '1px solid var(--color-border)', background: 'transparent', color: 'var(--color-text-muted)' }}
+                                                title="No longer required"
+                                              >Cancel</button>
+                                            </div>
+                                          )}
+                                        </div>
+                                      );
+                                    })()}
+                                  </div>
+                                </motion.div>
+                              )}
+                            </motion.div>
+                          )
+                        })
+                      )}
+                    </div>
+                  </AnimatePresence>
+                </div>
+              </>
+            ) : (
+              <FormalReportsPanel
+                reports={sessionReports}
+                loading={sessionReportsLoading}
+                error={sessionReportsError}
+                onOpenReport={handleOpenSessionReport}
+              />
+            )}
+          </motion.div>
+        )}
+
+        {/* ── Summary tab: Quick ↔ Technical ──────────────────────────────
+            Same toggle idiom as History above — Quick is the crisp derived
+            read (AISummaryCard, no LLM call), Technical is the full AI
+            Technical Report view (unchanged from V10/V11). */}
+        {activeTab === 'summary' && (
+          <motion.div variants={item} className="bento-card col-span-12">
+            <div className="sub-toggle no-print">
+              <button
+                type="button"
+                className={`sub-toggle-btn ${summaryView === 'quick' ? 'sub-toggle-btn--active' : ''}`}
+                onClick={() => setSummaryView('quick')}
+              >
+                Quick
+              </button>
+              <button
+                type="button"
+                className={`sub-toggle-btn ${summaryView === 'technical' ? 'sub-toggle-btn--active' : ''}`}
+                onClick={() => setSummaryView('technical')}
+              >
+                <BrainCircuit size={13} /> Technical
+              </button>
+            </div>
+
+            {summaryView === 'quick' ? (
+              <AISummaryCard report={aiReport} loading={aiReportLoading} loadError={aiReportError} />
+            ) : (
+              <AIReportPanel
+                report={aiReport}
+                loading={aiReportLoading}
+                loadError={aiReportError}
+                generating={aiGenerating}
+                generateError={aiGenerateError}
+                insufficientData={aiInsufficientData}
+                cooldownActive={aiCooldownActive}
+                cooldownEndsAt={aiCooldownEndsAt}
+                onGenerate={handleGenerateAIReport}
+              />
+            )}
+          </motion.div>
+        )}
+
         {activeTab === 'telemetry' && (() => {
           // ---- derived evidence -------------------------------------------
           const ds = (telemetry?.domain_scores ?? {}) as Record<string, number | null>;
@@ -704,194 +1217,8 @@ export const StudentProfile: React.FC = () => {
           </>
           );
         })()}
-        
-        {/* History Timeline */}
-        {activeTab === 'profile' && (
-        <motion.div variants={item} className="bento-card col-span-12">
-          <div className="flex justify-between items-center mb-6 mobile-stack mobile-stack-start" style={{ gap: '1rem' }}>
-            <h3 className="text-h3">Counseling History</h3>
-            <motion.button 
-              whileHover={{ scale: 1.05 }} 
-              whileTap={{ scale: 0.95 }}
-              onClick={() => navigate(`/add-log?student=${student.id}`)} 
-              className="btn btn-secondary no-print" 
-              style={{ padding: '0.5rem 1rem', fontSize: '0.875rem', borderColor: 'var(--color-primary)', color: 'var(--color-primary)' }}
-            >
-              + Log Session
-            </motion.button>
-          </div>
-          
-          <div style={{ position: 'relative', paddingLeft: '1rem' }}>
-            <div className="no-print" style={{ position: 'absolute', left: 0, top: '1rem', bottom: 0, width: '2px', backgroundColor: 'var(--color-border)' }}></div>
-
-            <AnimatePresence>
-              <div className="flex" style={{ flexDirection: 'column', gap: '2rem' }}>
-                {logs.length === 0 ? (
-                  <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-muted py-4">No counseling logs found for this student.</motion.p>
-                ) : (
-                  logs.map((item, index) => {
-                    const isDraft = item.session_status === 'Draft';
-                    const hasAssessments = item.assessment_data && item.assessment_data.length > 0;
-                    const isExpanded = expandedLogs.has(item.id);
-
-                    return (
-                      <motion.div 
-                        key={item.id} 
-                        initial={{ opacity: 0, x: -20 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: index * 0.1, type: 'spring', stiffness: 300 }}
-                        className="print-timeline-item"
-                        style={{ position: 'relative', paddingLeft: '2rem' }}
-                      >
-                        {/* Timeline Dot */}
-                        <div className="no-print" style={{ 
-                          position: 'absolute', left: '-21px', top: '5px', width: '12px', height: '12px', borderRadius: '50%', 
-                          backgroundColor: isDraft ? '#f59e0b' : hasAssessments ? '#10b981' : 'var(--color-primary)', 
-                          border: '2px solid var(--color-surface)' 
-                        }}></div>
-                        
-                        <div className="flex justify-between items-start mb-2">
-                          <div>
-                            <div className="flex items-center gap-2 mb-1">
-                              {isDraft && (
-                                <span style={{ fontSize: '0.75rem', padding: '0.1rem 0.5rem', backgroundColor: 'rgba(245, 158, 11, 0.1)', border: '1px solid rgba(245, 158, 11, 0.2)', borderRadius: '4px', color: '#f59e0b' }}>
-                                  Draft
-                                </span>
-                              )}
-                              <span style={{ fontSize: '0.75rem', padding: '0.1rem 0.5rem', backgroundColor: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: '4px', color: 'var(--color-primary)' }}>
-                                {item.interaction_type || 'Session'}
-                              </span>
-                              {hasAssessments && !isDraft && (
-                                <span style={{ fontSize: '0.75rem', padding: '0.1rem 0.5rem', backgroundColor: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.2)', borderRadius: '4px', color: '#10b981', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                  <BrainCircuit size={10} /> Assessment
-                                </span>
-                              )}
-                            </div>
-                            <h4 className="text-h3" style={{ fontSize: '1.25rem' }}>{item.reason}</h4>
-                            <p className="text-muted" style={{ fontSize: '0.875rem' }}>{item.counselor_name} • {new Date(item.session_date).toLocaleString()}</p>
-                          </div>
-
-                          {/* Action Button: Resume Draft or Expand Assessments */}
-                          {isDraft ? (
-                            <button 
-                              onClick={() => {
-                                if (item.interaction_type === 'Session' && (!item.student_response || item.student_response === 'Draft Assessment')) {
-                                  // Navigate to /add-log to resume an embedded draft to ensure clinical notes are filled
-                                  navigate(`/add-log?schedule_id=${item.id}&student=${student.id}`);
-                                } else {
-                                  setActiveAssessmentId('draft'); // Dummy ID to trigger wizard mount
-                                  setActiveDraftLogId(item.id);
-                                }
-                              }}
-                              className="btn btn-secondary"
-                              style={{ padding: '0.25rem 0.75rem', fontSize: '0.875rem', color: '#f59e0b', borderColor: 'transparent', backgroundColor: 'rgba(245, 158, 11, 0.1)' }}
-                            >
-                              Resume Draft
-                            </button>
-                          ) : hasAssessments ? (
-                            <button 
-                              onClick={() => toggleExpand(item.id)}
-                              className="btn btn-secondary"
-                              style={{ padding: '0.25rem 0.75rem', fontSize: '0.875rem', backgroundColor: 'transparent', border: '1px solid var(--color-border)' }}
-                            >
-                              {isExpanded ? <><ChevronUp size={14} /> Collapse</> : <><ChevronDown size={14} /> Expand</>}
-                            </button>
-                          ) : null}
-                        </div>
-                        
-                        {/* Collapsed Assessment View */}
-                        {!isDraft && hasAssessments && !isExpanded && (
-                          <div style={{ backgroundColor: 'rgba(16, 185, 129, 0.05)', padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)', border: '1px solid rgba(16, 185, 129, 0.2)', display: 'flex', flexWrap: 'wrap', gap: '1rem' }}>
-                            {(item.assessment_data as any[]).map((a: any, i: number) => {
-                              const rawScoreValues = Object.values(a.responses) as number[];
-                              const totalScore = rawScoreValues.reduce((sum, val) => sum + (val || 0), 0);
-                              const totalQs = a.total_questions || 8;
-                              const maxPossible = (a.type === 'COMPE' || a.type === 'MIX') ? totalQs * 4 : 'N/A';
-                              const percentage = maxPossible !== 'N/A' && maxPossible > 0 ? Math.round((totalScore / (maxPossible as number)) * 100) : null;
-                              return (
-                                <span key={i} style={{ fontSize: '0.875rem', fontWeight: 500, color: '#10b981' }}>
-                                  {a.title}: {percentage !== null ? `${percentage}%` : totalScore}
-                                </span>
-                              );
-                            })}
-                          </div>
-                        )}
-
-                        {/* Expanded Notes and Receipt */}
-                        {(!hasAssessments || isExpanded) && !isDraft && (
-                          <motion.div 
-                            initial={{ opacity: 0, height: 0 }} 
-                            animate={{ opacity: 1, height: 'auto' }} 
-                            className="print-notes" 
-                            style={{ backgroundColor: 'var(--color-bg)', padding: '1.25rem', borderRadius: 'var(--radius-md)', marginTop: '0.5rem', border: '1px solid var(--color-border)', overflow: 'hidden' }}
-                          >
-                            <div className="mb-4">
-                              <p className="text-muted" style={{ fontSize: '0.75rem', textTransform: 'uppercase', marginBottom: '0.5rem', letterSpacing: '0.05em' }}>Session Notes & Student Response</p>
-                              <p className="text-body" style={{ whiteSpace: 'pre-line', lineHeight: '1.6' }}>{item.student_response || 'No notes provided.'}</p>
-                            </div>
-                            
-                            {hasAssessments && (
-                              <div className="mb-4">
-                                <p className="text-muted" style={{ fontSize: '0.75rem', textTransform: 'uppercase', marginBottom: '0.5rem', letterSpacing: '0.05em' }}>Full Assessment Receipt</p>
-                                {(item.assessment_data as any[]).map((a: any, i: number) => (
-                                  <div key={i} style={{ backgroundColor: 'rgba(0,0,0,0.1)', padding: '1rem', borderRadius: 'var(--radius-sm)', marginBottom: '0.5rem' }}>
-                                    <h5 style={{ fontSize: '0.875rem', color: 'var(--color-primary)', marginBottom: '0.75rem' }}>{a.title}</h5>
-                                    {Object.entries(a.responses).map(([q, ans]: any, j) => (
-                                      <div key={j} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.5rem', backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: '4px', fontSize: '0.875rem', marginBottom: '2px' }}>
-                                        <span style={{ color: 'var(--color-text-muted)', flex: 1, paddingRight: '1rem' }}>{q}</span>
-                                        <strong style={{ color: '#10b981', minWidth: '30px', textAlign: 'right' }}>{ans}</strong>
-                                      </div>
-                                    ))}
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-
-                            <div className="flex gap-4 flex-wrap">
-                              <div className="print-action" style={{ flex: 1, backgroundColor: 'rgba(74, 222, 128, 0.1)', color: 'var(--color-success)', padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)', fontSize: '0.875rem', fontWeight: 500, minWidth: '200px' }}>
-                                <span style={{ fontSize: '0.75rem', display: 'block', opacity: 0.8, marginBottom: '4px', letterSpacing: '0.05em' }}>RECOMMENDED ACTION</span>
-                                {item.recommended_action || 'None'}
-                              </div>
-                              {item.follow_up_date && (() => {
-                                const st = item.follow_up_status || 'Pending';
-                                const closed = st === 'Done' || st === 'Cancelled';
-                                const tone = st === 'Done' ? { bg: 'rgba(63, 201, 143, 0.1)', fg: 'var(--color-success)' }
-                                  : st === 'Cancelled' ? { bg: 'rgba(255,255,255,0.04)', fg: 'var(--color-text-muted)' }
-                                    : { bg: 'rgba(245, 158, 11, 0.1)', fg: '#f59e0b' };
-                                return (
-                                  <div className="print-action" style={{ flex: 1, backgroundColor: tone.bg, color: tone.fg, padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)', fontSize: '0.875rem', fontWeight: 500, minWidth: '200px' }}>
-                                    <span style={{ fontSize: '0.75rem', display: 'block', opacity: 0.8, marginBottom: '4px', letterSpacing: '0.05em' }}>FOLLOW-UP ({st})</span>
-                                    {new Date(item.follow_up_date).toLocaleDateString()}
-                                    {!closed && (
-                                      <div className="no-print" style={{ display: 'flex', gap: '0.4rem', marginTop: '0.5rem' }}>
-                                        <button
-                                          onClick={(e) => { e.stopPropagation(); setFollowUpStatus(item.id, 'Done'); }}
-                                          style={{ cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600, padding: '0.2rem 0.6rem', borderRadius: 'var(--radius-full)', border: '1px solid rgba(63,201,143,0.4)', background: 'rgba(63,201,143,0.12)', color: 'var(--color-success)' }}
-                                          title="Mark this follow-up as completed — restores the student's follow-through score"
-                                        >✓ Mark Done</button>
-                                        <button
-                                          onClick={(e) => { e.stopPropagation(); setFollowUpStatus(item.id, 'Cancelled'); }}
-                                          style={{ cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600, padding: '0.2rem 0.6rem', borderRadius: 'var(--radius-full)', border: '1px solid var(--color-border)', background: 'transparent', color: 'var(--color-text-muted)' }}
-                                          title="No longer required"
-                                        >Cancel</button>
-                                      </div>
-                                    )}
-                                  </div>
-                                );
-                              })()}
-                            </div>
-                          </motion.div>
-                        )}
-                      </motion.div>
-                    )
-                  })
-                )}
-              </div>
-            </AnimatePresence>
-          </div>
-        </motion.div>
-        )}
       </div>
+
 
       {/* ── Tag Assignment Modal ── */}
       <AnimatePresence>
@@ -1003,9 +1330,25 @@ export const StudentProfile: React.FC = () => {
             <button onClick={() => setIsReportModalOpen(false)} style={{ position: 'absolute', top: '1rem', right: '1rem', background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)' }}>
               <X size={20} />
             </button>
-            <h3 className="text-h2 mb-4" style={{ fontSize: '1.25rem' }}>Generate Statement</h3>
+            <h3 className="text-h2 mb-4" style={{ fontSize: '1.25rem' }}>Generate Report</h3>
             <p className="text-muted mb-6" style={{ fontSize: '0.875rem' }}>Select your export preferences.</p>
-            
+
+            <div className="mb-6" style={{ display: 'flex', gap: '1rem' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.875rem', cursor: 'pointer' }}>
+                <input type="radio" name="reportKind" value="raw" checked={reportKind === 'raw'} onChange={() => setReportKind('raw')} />
+                Raw Statement
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.875rem', cursor: 'pointer' }}>
+                <input type="radio" name="reportKind" value="formal" checked={reportKind === 'formal'} onChange={() => setReportKind('formal')} />
+                Formal (AI, Redacted)
+              </label>
+            </div>
+            <p className="text-muted mb-4" style={{ fontSize: '0.78rem', marginTop: '-0.75rem' }}>
+              {reportKind === 'raw'
+                ? 'Verbatim session log, exactly as recorded — the original export.'
+                : 'AI-written narrative from redacted session text. Best-effort redaction, not a PII guarantee.'}
+            </p>
+
             <div className="mb-6" style={{ display: 'flex', gap: '1rem' }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.875rem', cursor: 'pointer' }}>
                 <input type="radio" name="reportType" value="custom" checked={reportType === 'custom'} onChange={() => setReportType('custom')} />
@@ -1030,8 +1373,28 @@ export const StudentProfile: React.FC = () => {
               </>
             )}
 
-            <button onClick={handleGenerateReport} className="btn btn-primary" style={{ width: '100%', padding: '0.75rem' }}>
-              Compile Report
+            {reportKind === 'formal' && (
+              <div className="mb-6" style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.875rem', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={formalIncludeTelemetry} onChange={e => setFormalIncludeTelemetry(e.target.checked)} />
+                  Include telemetry data (domain/engagement bands)
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.875rem', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={formalIncludeSummary} onChange={e => setFormalIncludeSummary(e.target.checked)} />
+                  Include current AI Summary
+                </label>
+              </div>
+            )}
+
+            {formalGenerateError && <p className="mini-note-error mb-4">{formalGenerateError}</p>}
+
+            <button
+              onClick={handleGenerateReport}
+              className="btn btn-primary"
+              style={{ width: '100%', padding: '0.75rem' }}
+              disabled={formalGenerating}
+            >
+              {formalGenerating ? 'Generating…' : reportKind === 'raw' ? 'Compile Report' : 'Generate Formal Report'}
             </button>
           </motion.div>
         </div>

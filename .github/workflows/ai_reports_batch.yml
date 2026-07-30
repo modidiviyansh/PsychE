@@ -1,0 +1,43 @@
+name: AI Technical Reports Batch
+
+on:
+  schedule:
+    # 10:30 UTC is 16:00 IST — after school hours, per the source PRD's window.
+    - cron: '30 10 * * *'
+  workflow_dispatch:
+
+jobs:
+  generate-reports:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Generate a report for every eligible student
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          set -euo pipefail
+
+          STUDENT_UUIDS=$(curl -s "$SUPABASE_URL/rest/v1/rpc/psyche_ai_report_eligible_students" \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{}' | jq -r '.[].student_uuid')
+
+          if [ -z "$STUDENT_UUIDS" ]; then
+            echo "No eligible students today."
+            exit 0
+          fi
+
+          for uuid in $STUDENT_UUIDS; do
+            echo "Generating report for $uuid"
+            curl -s -X POST "$SUPABASE_URL/functions/v1/generate-ai-report" \
+              -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+              -H "Content-Type: application/json" \
+              -d "{\"studentUuid\":\"$uuid\",\"source\":\"cron\"}"
+            echo ""
+            # Spacing to stay under free-tier LLM rate limits — see the source
+            # PRD §7.1. A GitHub Actions job can run for hours, so a plain
+            # sleep in the loop is simpler than any queuing infrastructure.
+            sleep 10
+          done

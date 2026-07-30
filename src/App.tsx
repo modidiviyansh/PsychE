@@ -11,6 +11,7 @@ import { KanbanBoard } from './pages/KanbanBoard';
 import { BulkSchedule } from './pages/BulkSchedule';
 import { PinScreen } from './components/PinScreen';
 import { ReportExport } from './pages/ReportExport';
+import { FormalReportExport } from './pages/FormalReportExport';
 import { Analytics } from './pages/Analytics';
 import { LibraryManager } from './components/LibraryManager';
 import { GlobalTagManager } from './components/GlobalTagManager';
@@ -40,6 +41,7 @@ export default function App() {
           <Route path="tags" element={<GlobalTagManager />} />
         </Route>
         <Route path="/report" element={<PinScreen><ReportExport /></PinScreen>} />
+        <Route path="/formal-report" element={<PinScreen><FormalReportExport /></PinScreen>} />
       </Routes>
     </BrowserRouter>
   );

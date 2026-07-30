@@ -1,6 +1,6 @@
 -- =============================================================================
 --  PsychE — Complete Database Installer
---  Version 6.1.0 · consolidated 2026-07-30
+--  Version 6.4.0 · consolidated 2026-07-30
 -- =============================================================================
 --
 --  ONE FILE. Paste into the Supabase SQL editor and run. That is the whole
@@ -77,6 +77,11 @@ CREATE TABLE IF NOT EXISTS "PsychE_Students" (
     risk_level          VARCHAR(20)   DEFAULT 'Low',
     engagement_modifier INT           DEFAULT 0,
     profile_image       TEXT,
+    -- V10: recorded but NOT enforced anywhere yet — see the AI Reports section
+    -- below. Lets the school start logging consent now; a hard gate on
+    -- report generation is a follow-up, not part of this install.
+    consent_verified_at TIMESTAMPTZ,
+    consent_scope       TEXT,
     created_at          TIMESTAMPTZ   DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -85,13 +90,13 @@ CREATE TABLE IF NOT EXISTS "PsychE_Settings" (
     id                       INT           PRIMARY KEY DEFAULT 1,
     daily_session_capacity   INT           DEFAULT 15,
     allowed_pins             TEXT          DEFAULT '2001,0987,0999,2580',
-    app_version              VARCHAR(20)   DEFAULT '6.1.0',
+    app_version              VARCHAR(20)   DEFAULT '6.4.0',
     assessment_cooldown_days INT           DEFAULT 30,
     created_at               TIMESTAMPTZ   DEFAULT NOW()
 );
 
 INSERT INTO "PsychE_Settings" (id, daily_session_capacity, allowed_pins, app_version, assessment_cooldown_days)
-VALUES (1, 15, '2001,0987,0999,2580', '6.1.0', 30)
+VALUES (1, 15, '2001,0987,0999,2580', '6.4.0', 30)
 ON CONFLICT (id) DO NOTHING;
 
 -- ─── 2.3 Domains (7 psychological scoring domains) ───────────────────────────
@@ -205,6 +210,109 @@ CREATE TABLE IF NOT EXISTS "PsychE_Student_Telemetry" (
     rsi_data               JSONB
 );
 
+-- ─── 2.11 Student Notes — V9 Mini Notes ──────────────────────────────────────
+--  The counsellor's own memory aids: a question to ask next time, an approach
+--  that worked, a practical reminder. Free text, written for one reader.
+--
+--  ⚠ NOT CLINICAL EVIDENCE. Nothing in SECTION 6 reads this table and nothing
+--    ever should. A note is an unvalidated, unscored, single-observer opinion;
+--    letting it reach the Domain / ETI / Composite / RSI pipeline would put
+--    unstructured text into a psychometric model. Notes travel to the
+--    counsellor's eyes only — they change what the counsellor does next, never
+--    what the engine computes.
+--
+--  is_done is an archive flag, not a delete. "I tried the drawing exercise and
+--  it went nowhere" is worth keeping; a resolved note stays readable under
+--  Archive so the same idea is not re-tried blind next term.
+CREATE TABLE IF NOT EXISTS "PsychE_Student_Notes" (
+    id              UUID          PRIMARY KEY DEFAULT uuid_generate_v4(),
+    student_uuid    UUID          NOT NULL REFERENCES "PsychE_Students"(id) ON DELETE CASCADE,
+    body            TEXT          NOT NULL,
+    -- 'Question' = ask next time · 'Approach' = try next time · 'Reminder' = practical
+    note_kind       VARCHAR(20)   NOT NULL DEFAULT 'Approach'
+                    CHECK (note_kind IN ('Question', 'Approach', 'Reminder')),
+    is_pinned       BOOLEAN       NOT NULL DEFAULT FALSE,
+    is_done         BOOLEAN       NOT NULL DEFAULT FALSE,
+    done_at         TIMESTAMPTZ,
+    author          VARCHAR(255),
+    created_at      TIMESTAMPTZ   DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ   DEFAULT NOW()
+);
+
+
+-- ─── 2.12 AI Technical Reports — V10 ──────────────────────────────────────────
+--  One row per generation, never overwritten — an append-log like
+--  PsychE_Student_Telemetry, not an upsert-in-place table. "Latest for this
+--  student" is just ORDER BY generated_at DESC LIMIT 1. Keeping every past
+--  generation costs nothing at these volumes and means a future drift/history
+--  feature needs zero migration — the rows already exist.
+--
+--  ⚠ V10 SCOPE: report_jsonb is built from PsychE_Student_Telemetry bands and
+--    labels ONLY — archetype, risk_level, engine_status, and score bands, never
+--    raw counselling-log or note free text. That is what makes the AI payload
+--    zero-PII by construction rather than by redaction quality: there is
+--    nothing identifying in the payload to redact in the first place. If a
+--    future version wants log text in the prompt, it needs a real reviewed
+--    redaction pass first — do not add it as a quick payload tweak.
+--
+--  ⚠ trajectory_delta inside report_jsonb is always 'insufficient_data' in
+--    this version. Longitudinal drift (comparing this report against past
+--    ones) is a deliberately separate, not-yet-built phase — do not let the
+--    LLM guess a trend from a single snapshot.
+CREATE TABLE IF NOT EXISTS "PsychE_AI_Reports" (
+    id                UUID          PRIMARY KEY DEFAULT uuid_generate_v4(),
+    student_uuid      UUID          NOT NULL REFERENCES "PsychE_Students"(id) ON DELETE CASCADE,
+    report_jsonb      JSONB         NOT NULL,
+    -- 'on_demand' = counsellor clicked Regenerate · 'cron' = nightly batch
+    generation_source VARCHAR(20)   NOT NULL DEFAULT 'on_demand'
+                      CHECK (generation_source IN ('on_demand', 'cron')),
+    model_used        VARCHAR(50),
+    generated_at      TIMESTAMPTZ   DEFAULT NOW()
+);
+
+
+-- ─── 2.13 Sanitized Session Reports — V11 Formal Reports ─────────────────────
+--  Triggered from the SAME "Generate Report" modal as the raw statement
+--  export (ReportExport.tsx / /report), not a separate composer — the counsellor
+--  picks Raw vs Formal there, plus (for Formal) whether to fold in telemetry
+--  bands and/or the current AI Summary. One row per generation, append-only.
+--
+--  ⚠ Unlike PsychE_AI_Reports, this table's generation path DOES touch free
+--    session text — that's the point of a "session report". The redaction in
+--    supabase/functions/_shared/redaction.ts is best-effort (structural
+--    substitution + regex), not a PII guarantee. See that file's header.
+CREATE TABLE IF NOT EXISTS "PsychE_Sanitized_Session_Reports" (
+    id                  UUID          PRIMARY KEY DEFAULT uuid_generate_v4(),
+    student_uuid        UUID          NOT NULL REFERENCES "PsychE_Students"(id) ON DELETE CASCADE,
+    session_ids         UUID[]        NOT NULL,
+    report_text         TEXT          NOT NULL,
+    report_jsonb        JSONB,
+    included_telemetry  BOOLEAN       NOT NULL DEFAULT FALSE,
+    included_summary    BOOLEAN       NOT NULL DEFAULT FALSE,
+    model_used          VARCHAR(50),
+    generated_at        TIMESTAMPTZ   DEFAULT NOW()
+);
+
+
+-- ─── 2.14 Model Usage Log — V11 Model Choice Router ──────────────────────────
+--  Backs the router's own rate-limit accounting (calls/minute, calls/day per
+--  model — an in-memory counter would reset unpredictably between Edge
+--  Function invocations) and doubles as the compliance audit trail from the
+--  source PRD §9.1: which model ran, for which report type, roughly how much
+--  was sent, without needing to read raw prompts.
+--
+--  student_uuid is ON DELETE SET NULL, not CASCADE — this is an operational
+--  log, not student data; it should outlive the student record it references.
+CREATE TABLE IF NOT EXISTS "PsychE_Model_Usage_Log" (
+    id            UUID          PRIMARY KEY DEFAULT uuid_generate_v4(),
+    model_name    VARCHAR(50)   NOT NULL,
+    provider      VARCHAR(20)   NOT NULL,
+    report_type   VARCHAR(20)   NOT NULL CHECK (report_type IN ('summary', 'full', 'session')),
+    tokens_used   INT,
+    student_uuid  UUID          REFERENCES "PsychE_Students"(id) ON DELETE SET NULL,
+    called_at     TIMESTAMPTZ   DEFAULT NOW()
+);
+
 
 -- =============================================================================
 --  SECTION 3 ── Upgrade path
@@ -233,12 +341,14 @@ ALTER TABLE "PsychE_Students" ADD COLUMN IF NOT EXISTS enrolled_date DATE;
 ALTER TABLE "PsychE_Students" ADD COLUMN IF NOT EXISTS risk_level VARCHAR(20) DEFAULT 'Low';
 ALTER TABLE "PsychE_Students" ADD COLUMN IF NOT EXISTS engagement_modifier INT DEFAULT 0;
 ALTER TABLE "PsychE_Students" ADD COLUMN IF NOT EXISTS profile_image TEXT;
+ALTER TABLE "PsychE_Students" ADD COLUMN IF NOT EXISTS consent_verified_at TIMESTAMPTZ;
+ALTER TABLE "PsychE_Students" ADD COLUMN IF NOT EXISTS consent_scope TEXT;
 ALTER TABLE "PsychE_Students" ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
 
 -- PsychE_Settings
 ALTER TABLE "PsychE_Settings" ADD COLUMN IF NOT EXISTS daily_session_capacity INT DEFAULT 15;
 ALTER TABLE "PsychE_Settings" ADD COLUMN IF NOT EXISTS allowed_pins TEXT DEFAULT '2001,0987,0999,2580';
-ALTER TABLE "PsychE_Settings" ADD COLUMN IF NOT EXISTS app_version VARCHAR(20) DEFAULT '6.1.0';
+ALTER TABLE "PsychE_Settings" ADD COLUMN IF NOT EXISTS app_version VARCHAR(20) DEFAULT '6.4.0';
 ALTER TABLE "PsychE_Settings" ADD COLUMN IF NOT EXISTS assessment_cooldown_days INT DEFAULT 30;
 ALTER TABLE "PsychE_Settings" ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
 
@@ -315,6 +425,42 @@ ALTER TABLE "PsychE_Student_Telemetry" ADD COLUMN IF NOT EXISTS composite_data J
 ALTER TABLE "PsychE_Student_Telemetry" ADD COLUMN IF NOT EXISTS rsi_score NUMERIC;
 ALTER TABLE "PsychE_Student_Telemetry" ADD COLUMN IF NOT EXISTS rsi_data JSONB;
 
+-- PsychE_Student_Notes (V9)
+ALTER TABLE "PsychE_Student_Notes" ADD COLUMN IF NOT EXISTS student_uuid UUID;
+ALTER TABLE "PsychE_Student_Notes" ADD COLUMN IF NOT EXISTS body TEXT;
+ALTER TABLE "PsychE_Student_Notes" ADD COLUMN IF NOT EXISTS note_kind VARCHAR(20) DEFAULT 'Approach';
+ALTER TABLE "PsychE_Student_Notes" ADD COLUMN IF NOT EXISTS is_pinned BOOLEAN DEFAULT FALSE;
+ALTER TABLE "PsychE_Student_Notes" ADD COLUMN IF NOT EXISTS is_done BOOLEAN DEFAULT FALSE;
+ALTER TABLE "PsychE_Student_Notes" ADD COLUMN IF NOT EXISTS done_at TIMESTAMPTZ;
+ALTER TABLE "PsychE_Student_Notes" ADD COLUMN IF NOT EXISTS author VARCHAR(255);
+ALTER TABLE "PsychE_Student_Notes" ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
+ALTER TABLE "PsychE_Student_Notes" ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+
+-- PsychE_AI_Reports (V10)
+ALTER TABLE "PsychE_AI_Reports" ADD COLUMN IF NOT EXISTS student_uuid UUID;
+ALTER TABLE "PsychE_AI_Reports" ADD COLUMN IF NOT EXISTS report_jsonb JSONB;
+ALTER TABLE "PsychE_AI_Reports" ADD COLUMN IF NOT EXISTS generation_source VARCHAR(20) DEFAULT 'on_demand';
+ALTER TABLE "PsychE_AI_Reports" ADD COLUMN IF NOT EXISTS model_used VARCHAR(50);
+ALTER TABLE "PsychE_AI_Reports" ADD COLUMN IF NOT EXISTS generated_at TIMESTAMPTZ DEFAULT NOW();
+
+-- PsychE_Sanitized_Session_Reports (V11)
+ALTER TABLE "PsychE_Sanitized_Session_Reports" ADD COLUMN IF NOT EXISTS student_uuid UUID;
+ALTER TABLE "PsychE_Sanitized_Session_Reports" ADD COLUMN IF NOT EXISTS session_ids UUID[];
+ALTER TABLE "PsychE_Sanitized_Session_Reports" ADD COLUMN IF NOT EXISTS report_text TEXT;
+ALTER TABLE "PsychE_Sanitized_Session_Reports" ADD COLUMN IF NOT EXISTS report_jsonb JSONB;
+ALTER TABLE "PsychE_Sanitized_Session_Reports" ADD COLUMN IF NOT EXISTS included_telemetry BOOLEAN DEFAULT FALSE;
+ALTER TABLE "PsychE_Sanitized_Session_Reports" ADD COLUMN IF NOT EXISTS included_summary BOOLEAN DEFAULT FALSE;
+ALTER TABLE "PsychE_Sanitized_Session_Reports" ADD COLUMN IF NOT EXISTS model_used VARCHAR(50);
+ALTER TABLE "PsychE_Sanitized_Session_Reports" ADD COLUMN IF NOT EXISTS generated_at TIMESTAMPTZ DEFAULT NOW();
+
+-- PsychE_Model_Usage_Log (V11)
+ALTER TABLE "PsychE_Model_Usage_Log" ADD COLUMN IF NOT EXISTS model_name VARCHAR(50);
+ALTER TABLE "PsychE_Model_Usage_Log" ADD COLUMN IF NOT EXISTS provider VARCHAR(20);
+ALTER TABLE "PsychE_Model_Usage_Log" ADD COLUMN IF NOT EXISTS report_type VARCHAR(20);
+ALTER TABLE "PsychE_Model_Usage_Log" ADD COLUMN IF NOT EXISTS tokens_used INT;
+ALTER TABLE "PsychE_Model_Usage_Log" ADD COLUMN IF NOT EXISTS student_uuid UUID;
+ALTER TABLE "PsychE_Model_Usage_Log" ADD COLUMN IF NOT EXISTS called_at TIMESTAMPTZ DEFAULT NOW();
+
 -- Backfill scale defaults for modules created before these columns existed.
 UPDATE "PsychE_Modules" SET scale_min = 1 WHERE scale_min IS NULL;
 UPDATE "PsychE_Modules" SET scale_max = 4 WHERE scale_max IS NULL;
@@ -338,6 +484,26 @@ CREATE INDEX IF NOT EXISTS idx_modules_smart_keywords    ON "PsychE_Modules"    
 CREATE INDEX IF NOT EXISTS idx_telemetry_student_uuid    ON "PsychE_Student_Telemetry" (student_uuid);
 CREATE INDEX IF NOT EXISTS idx_telemetry_calculated_at   ON "PsychE_Student_Telemetry" (calculated_at DESC);
 
+-- Notes are always read for ONE student, filtered by is_done, ordered pinned
+-- first then newest. A single composite index serves the whole access pattern.
+CREATE INDEX IF NOT EXISTS idx_notes_student_open        ON "PsychE_Student_Notes"
+                                                         (student_uuid, is_done, is_pinned DESC, created_at DESC);
+
+-- "Latest report for this student" — the only read pattern the profile panel
+-- and the on-demand cooldown check ever perform.
+CREATE INDEX IF NOT EXISTS idx_ai_reports_student_latest ON "PsychE_AI_Reports"
+                                                         (student_uuid, generated_at DESC);
+
+-- Formal Reports tab lists these newest-first, per student.
+CREATE INDEX IF NOT EXISTS idx_sanitized_reports_student ON "PsychE_Sanitized_Session_Reports"
+                                                         (student_uuid, generated_at DESC);
+
+-- The router's rate-limit check: "how many calls to model X in the last
+-- minute / today". Model-first in the composite key since every router query
+-- filters by model_name before the time window.
+CREATE INDEX IF NOT EXISTS idx_model_usage_model_time    ON "PsychE_Model_Usage_Log"
+                                                         (model_name, called_at DESC);
+
 
 -- =============================================================================
 --  SECTION 5 ── Row Level Security
@@ -357,7 +523,9 @@ BEGIN
   FOREACH t IN ARRAY ARRAY[
     'PsychE_Students','PsychE_Settings','PsychE_Modules','PsychE_System_Tags',
     'PsychE_Questions','PsychE_Counseling_Logs','PsychE_Student_Tags',
-    'PsychE_Responses','PsychE_Domains','PsychE_Student_Telemetry'
+    'PsychE_Responses','PsychE_Domains','PsychE_Student_Telemetry',
+    'PsychE_Student_Notes','PsychE_AI_Reports',
+    'PsychE_Sanitized_Session_Reports','PsychE_Model_Usage_Log'
   ] LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
     -- legacy names from the superseded migration chain
@@ -1039,6 +1207,26 @@ FOR EACH ROW
 EXECUTE FUNCTION psyche_autoclose_followups();
 
 
+-- ─── V10 — AI Report eligibility ─────────────────────────────────────────────
+--  One student per row, latest telemetry only. Mirrors the PRD's cron
+--  eligibility rule (session_count >= 2, data_completeness >= 0.3) so the
+--  batch workflow and the Edge Function agree on who is "ready" without
+--  either side re-deriving the threshold. DISTINCT ON needs an explicit
+--  ORDER BY student_uuid first, THEN calculated_at DESC, or Postgres picks
+--  an arbitrary row per student instead of the newest.
+CREATE OR REPLACE FUNCTION psyche_ai_report_eligible_students()
+RETURNS TABLE(student_uuid UUID)
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT DISTINCT ON (t.student_uuid) t.student_uuid
+  FROM "PsychE_Student_Telemetry" t
+  WHERE (t.metrics_payload->>'session_count')::INT >= 2
+    AND (t.metrics_payload->>'data_completeness')::NUMERIC >= 0.3
+  ORDER BY t.student_uuid, t.calculated_at DESC;
+$$;
+
+
 -- =============================================================================
 --  SECTION 8 ── Verification
 --  Run these after installing. All should return without error.
@@ -1046,11 +1234,16 @@ EXECUTE FUNCTION psyche_autoclose_followups();
 
 -- SELECT COUNT(*) AS domains FROM "PsychE_Domains";               -- expect 7
 -- SELECT daily_session_capacity FROM "PsychE_Settings" WHERE id=1;
+-- SELECT COUNT(*) FROM "PsychE_Student_Notes";                    -- expect 0 on a new install
+-- SELECT COUNT(*) FROM "PsychE_AI_Reports";                       -- expect 0 on a new install
+-- SELECT COUNT(*) FROM "PsychE_Sanitized_Session_Reports";        -- expect 0 on a new install
+-- SELECT COUNT(*) FROM "PsychE_Model_Usage_Log";                  -- expect 0 on a new install
 -- SELECT proname FROM pg_proc WHERE proname LIKE 'psyche%' OR proname = 'calculate_student_telemetry';
---   -- expect 8: psyche_compute_domain_score, psyche_get_engine_status,
+--   -- expect 9: psyche_compute_domain_score, psyche_get_engine_status,
 --   --           psyche_calculate_eti, psyche_compute_composite_score,
 --   --           psyche_compute_rsi_for_student, psyche_run_daily_batch,
---   --           psyche_programme_health, psyche_autoclose_followups
+--   --           psyche_programme_health, psyche_autoclose_followups,
+--   --           psyche_ai_report_eligible_students
 --   --           (+ calculate_student_telemetry)
 -- SELECT psyche_run_daily_batch();   -- populates telemetry for all students
 

@@ -6,6 +6,9 @@ import { supabase } from '../lib/supabase';
 import { getAvailableCapacityForDateRange } from '../lib/capacity';
 import { toSentenceCase } from '../utils/stringFormatter';
 import { AssessmentWizard } from '../components/AssessmentWizard';
+import { NextTimeNote, NotePrompt } from '../components/MiniNotes';
+import { createNote, fetchOpenNotes, setNoteDone } from '../lib/studentNotes';
+import type { NoteKind, StudentNote } from '../types';
 
 const container = {
   hidden: { opacity: 0 },
@@ -48,6 +51,14 @@ export const AddLog: React.FC = () => {
   // Conflict Guard State
   const [hasConflict, setHasConflict] = useState(false);
   const [conflictDate, setConflictDate] = useState('');
+
+  // ---- V9 Mini Notes -----------------------------------------------------
+  const [openNotes, setOpenNotes] = useState<StudentNote[]>([]);
+  const [notesLoading, setNotesLoading] = useState(false);
+  const [notesError, setNotesError] = useState<string | null>(null);
+  const [noteBusy, setNoteBusy] = useState(false);
+  const [newNoteError, setNewNoteError] = useState<string | null>(null);
+  const [notesAdded, setNotesAdded] = useState<StudentNote[]>([]);
 
   useEffect(() => {
     async function checkConflict() {
@@ -140,6 +151,70 @@ export const AddLog: React.FC = () => {
     }
     fetchInitialData();
   }, [scheduleId]);
+
+  /**
+   * Open Mini Notes for the selected student (V9).
+   *
+   * This is the point of the whole feature: the reminders the counsellor left
+   * themselves appear the moment a student is picked, above the intake field,
+   * while there is still time to act on them. On the profile they are a record;
+   * here they are a briefing.
+   *
+   * Notes written during this write-up are cleared on a student switch — they
+   * belong to the student they were written about, and leaving them on screen
+   * after the selection changes would suggest otherwise.
+   */
+  useEffect(() => {
+    let cancelled = false;
+    setNotesAdded([]);
+    setNewNoteError(null);
+
+    if (!studentUuid) {
+      setOpenNotes([]);
+      setNotesError(null);
+      return;
+    }
+
+    (async () => {
+      setNotesLoading(true);
+      const { data, error } = await fetchOpenNotes(studentUuid);
+      if (cancelled) return;
+      setOpenNotes(data);
+      setNotesError(error);
+      setNotesLoading(false);
+    })();
+
+    return () => { cancelled = true; };
+  }, [studentUuid]);
+
+  /** Tick a note off from the strip — you just acted on it. */
+  const handleResolveNote = async (note: StudentNote) => {
+    setNoteBusy(true);
+    const { error } = await setNoteDone(note.id, true);
+    setNoteBusy(false);
+    if (error) { setNotesError(error); return; }
+    setNotesError(null);
+    setOpenNotes(prev => prev.filter(n => n.id !== note.id));
+  };
+
+  /**
+   * Write a note for next time. Saved immediately, not on form submit: a note
+   * is an independent object, and binding it to the session save would mean an
+   * abandoned write-up silently discards the one line worth keeping.
+   */
+  const handleAddNextTimeNote = async (body: string, kind: NoteKind) => {
+    setNoteBusy(true);
+    setNewNoteError(null);
+    const { data, error } = await createNote({
+      studentUuid,
+      body,
+      kind,
+      author: counselorName,
+    });
+    setNoteBusy(false);
+    if (error || !data) { setNewNoteError(error ?? 'Could not save that note.'); return; }
+    setNotesAdded(prev => [data, ...prev]);
+  };
 
   // Fetch past assessments when student changes
   useEffect(() => {
@@ -384,6 +459,20 @@ export const AddLog: React.FC = () => {
           </div>
         </motion.div>
 
+        {/* NOTES BRIEFING — what you told yourself last time, before you write */}
+        <AnimatePresence>
+          {studentUuid && (
+            <NotePrompt
+              notes={openNotes}
+              studentName={students.find(s => s.id === studentUuid)?.full_name}
+              loading={notesLoading}
+              error={notesError}
+              busy={noteBusy}
+              onToggleDone={handleResolveNote}
+            />
+          )}
+        </AnimatePresence>
+
         {/* MIDDLE BENTO: Intake & Trigger */}
         <motion.div className="bento-card" style={{ padding: '2rem' }}>
           <div>
@@ -560,6 +649,20 @@ export const AddLog: React.FC = () => {
                   })}
                 </motion.div>
               )}
+            </div>
+
+            {/* ── Note for next time (V9) ───────────────────────────────────
+                Sits directly after the follow-up scheduler because that is
+                where the counsellor is already thinking about the next
+                contact — "I'll see her in a fortnight, and when I do…". */}
+            <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: '1.5rem' }}>
+              <NextTimeNote
+                disabled={!studentUuid}
+                saving={noteBusy}
+                error={newNoteError}
+                justAdded={notesAdded}
+                onCreate={handleAddNextTimeNote}
+              />
             </div>
 
           </div>

@@ -119,6 +119,109 @@ export interface CounselingLog {
   created_at: string;
 }
 
+/**
+ * V9 — Mini Notes. The counsellor's memory aids for one student.
+ *
+ * Deliberately outside the analytics pipeline: nothing in the SQL engines reads
+ * `PsychE_Student_Notes`, and nothing should. A note is unvalidated, unscored,
+ * single-observer text — it changes what the counsellor does next, never what
+ * the engine computes.
+ */
+export interface StudentNote {
+  id: string;                       // UUID PK
+  student_uuid: string;             // FK → PsychE_Students(id)
+  body: string;
+  note_kind: NoteKind;
+  is_pinned: boolean;
+  is_done: boolean;                 // Archive flag, not a delete
+  done_at?: string | null;
+  author?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * Kinds map onto how the note is meant to be *used*, which is why the UI reads
+ * them as verbs ("Ask" / "Try" / "Remember") rather than as nouns.
+ */
+export type NoteKind = 'Question' | 'Approach' | 'Reminder';
+
+export const NOTE_KINDS: { value: NoteKind; verb: string; hint: string }[] = [
+  { value: 'Question', verb: 'Ask',      hint: 'A question to put to them next time' },
+  { value: 'Approach', verb: 'Try',      hint: 'A different approach worth attempting' },
+  { value: 'Reminder', verb: 'Remember', hint: 'Something practical to keep in mind' },
+];
+
+/** Longest note body accepted. Mini notes stay mini — long-form belongs in the session record. */
+export const NOTE_MAX_LENGTH = 280;
+
+/**
+ * V10 — AI Technical Report. One row per generation (append-log, like
+ * telemetry) — `fetchLatestReport` just takes the newest by `generated_at`.
+ *
+ * `report` is built by the Edge Function from PsychE_Student_Telemetry bands
+ * and labels ONLY. No counselling-log or note free text ever reaches the LLM
+ * payload — see v10_ai_technical_report.sql for why.
+ */
+export interface AIReport {
+  id: string;                       // UUID PK
+  student_uuid: string;             // FK → PsychE_Students(id)
+  report: AIReportContent;
+  generation_source: 'on_demand' | 'cron';
+  model_used?: string | null;
+  generated_at: string;
+}
+
+/**
+ * `trajectory_delta` is always `insufficient_data` in this version.
+ * Longitudinal drift is a deliberately separate, not-yet-built phase — this
+ * shape exists now so the UI and the Edge Function agree on it, not because
+ * drift is computed.
+ */
+export interface AIReportContent {
+  clinical_summary: string;
+  dominant_theme: string;
+  tension_narrative: string;
+  engagement_narrative: string;
+  trajectory_delta: {
+    change_direction: 'insufficient_data';
+    change_confidence: 'low';
+    change_narrative: string;
+  };
+  previous_suggestions_review: string | null;
+  next_session_questions: string[];
+  ground_level_suggestions: GroundLevelSuggestion[];
+}
+
+export interface GroundLevelSuggestion {
+  category: 'Classroom & Academic' | 'Counselor Intervention';
+  action_item: string;
+  rationale: string;
+  clinical_term: string;
+}
+
+/**
+ * V11 — Formal (Sanitized Session) Report. One row per generation, append-log.
+ *
+ * Unlike AIReport, this one's generation path DOES touch free session text —
+ * that's the point of a "session report". Redaction happens server-side in
+ * the Edge Function before the LLM ever sees it (best-effort, not a PII
+ * guarantee — see supabase/functions/_shared/redaction.ts). `report_text` is
+ * the only thing this app ever displays; the raw session text is never sent
+ * to the client alongside it.
+ */
+export interface SanitizedSessionReport {
+  id: string;                       // UUID PK
+  student_uuid: string;             // FK → PsychE_Students(id)
+  session_ids: string[];
+  report_text: string;
+  report_jsonb?: { included_telemetry: boolean; included_summary: boolean } | null;
+  included_telemetry: boolean;
+  included_summary: boolean;
+  model_used?: string | null;
+  generated_at: string;
+}
+
 // ---------------------------------------------------------------------------
 //  TIER 3: Multiple FK Dependencies
 // ---------------------------------------------------------------------------

@@ -1598,3 +1598,526 @@ p, h1, h2, h3, h4, h5, h6, span {
   .table-scroll th,
   .table-scroll td { white-space: nowrap; }
 }
+
+
+/* =============================================================================
+   V9 — MINI NOTES
+   =============================================================================
+   Sticky notes for the counsellor's own memory: a question to ask next time, an
+   approach worth trying, a practical reminder. Rendered on the Student Profile
+   and, more importantly, inside the AddLog composer the moment a student is
+   picked — a note filed somewhere you have to go and look at is a note nobody
+   reads.
+
+   Two deliberate design constraints:
+
+   · NO USER-CHOSEN COLOUR. A paper sticky note is whatever colour you grab, but
+     in this app colour already means something specific and load-bearing: red
+     is high risk, amber is warning, green is healthy. A counsellor picking a red
+     note for a Low-risk student would be writing a lie in the app's own visual
+     language. Tint is therefore derived from note_kind and never chosen.
+
+   · KIND IS CARRIED BY LABEL AND ICON, NOT HUE. §9.7 rejected the
+     #5b8af5 ↔ #9b59f5 pairing as a categorical palette (normal-vision ΔE 13.3,
+     under the 15 floor). That verdict stands here — which is why every note
+     shows its verb in words ("Ask" / "Try" / "Remember") next to an icon. The
+     tint is decoration on top of an already-unambiguous label, so the two hues
+     never have to be told apart on their own.
+
+   The paper metaphor survives as the left edge bar and the lift on hover, not
+   as a yellow rectangle glued onto a dark glass UI.
+============================================================================= */
+
+.mini-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+}
+
+/* ─── A single note ──────────────────────────────────────────────────────── */
+.mini-note {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem 0.875rem 0.625rem;
+  border: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--mini-note-accent, var(--text-muted));
+  border-radius: var(--radius-sm);
+  background: var(--mini-note-tint, rgba(255, 255, 255, 0.03));
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.mini-note:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-card);
+  border-color: var(--border-active);
+}
+
+/* Kind tints. Applied as custom properties so the border and background can
+   never drift apart, and so a new kind is one rule rather than four. */
+.mini-note--question { --mini-note-accent: var(--accent-blue);   --mini-note-tint: rgba(91, 138, 245, 0.07); }
+.mini-note--approach { --mini-note-accent: var(--accent-purple); --mini-note-tint: rgba(155, 89, 245, 0.07); }
+.mini-note--reminder { --mini-note-accent: var(--text-secondary); --mini-note-tint: rgba(255, 255, 255, 0.035); }
+
+/* Resolved notes are legible but visibly spent — greyed to neutral so an
+   archived idea can never be mistaken for a live instruction at a glance. */
+.mini-note--done {
+  --mini-note-accent: var(--text-muted);
+  --mini-note-tint: transparent;
+  opacity: 0.6;
+}
+.mini-note--done .mini-note-body { text-decoration: line-through; text-decoration-color: var(--text-muted); }
+.mini-note--done:hover { opacity: 0.85; transform: none; box-shadow: none; }
+
+.mini-note-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.mini-note-kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--mini-note-accent);
+}
+
+.mini-note-body {
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--color-text);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+.mini-note-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+/* ─── Note row actions ───────────────────────────────────────────────────── */
+.mini-note-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.125rem;
+}
+
+.mini-note-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.3rem;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  /* Held at 0.55 rather than 0 so the controls are discoverable without a
+     hover — this app is desktop-first but the profile is read on tablets too,
+     where hover-only affordances simply do not exist. */
+  opacity: 0.55;
+  transition: opacity 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+
+.mini-note:hover .mini-note-btn { opacity: 1; }
+.mini-note-btn:hover { background: rgba(255, 255, 255, 0.07); color: var(--color-text); }
+.mini-note-btn:disabled { cursor: progress; opacity: 0.3; }
+.mini-note-btn--active { opacity: 1; color: var(--accent-amber); }
+.mini-note-btn--danger:hover { color: var(--accent-red); background: rgba(245, 91, 91, 0.1); }
+
+/* ─── Composer ───────────────────────────────────────────────────────────── */
+.mini-note-composer {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border: 1px dashed var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.mini-note-composer textarea {
+  width: 100%;
+  min-height: 64px;
+  padding: 0.5rem 0.625rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: inherit;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.mini-note-composer textarea:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+
+.mini-note-kind-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+}
+
+.mini-note-kind-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.25rem 0.625rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.mini-note-kind-option:hover { border-color: var(--border-active); color: var(--color-text); }
+
+.mini-note-kind-option--on {
+  border-color: var(--mini-note-accent, var(--color-primary));
+  background: var(--mini-note-tint, rgba(91, 138, 245, 0.1));
+  color: var(--mini-note-accent, var(--color-primary));
+}
+
+.mini-note-composer-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+/* Only turns amber as the limit approaches — a counter that is always coloured
+   reads as a warning about nothing. */
+.mini-note-count { font-size: 0.6875rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.mini-note-count--near { color: var(--accent-amber); }
+
+.mini-note-error {
+  font-size: 0.75rem;
+  color: var(--accent-red);
+  overflow-wrap: break-word;
+}
+
+.mini-note-empty {
+  font-size: 0.8125rem;
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+/* ─── AddLog prompt strip ────────────────────────────────────────────────── */
+/* Sits directly above the intake field. Deliberately NOT a bento card: it is a
+   briefing to read before writing, not another panel of the form competing for
+   the same attention. */
+.note-prompt {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1rem 1.25rem;
+  border: 1px solid rgba(155, 89, 245, 0.22);
+  border-radius: var(--radius-md);
+  background: rgba(155, 89, 245, 0.06);
+}
+
+.note-prompt-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.note-prompt-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--accent-purple);
+}
+
+.note-prompt-sub { font-size: 0.75rem; color: var(--text-secondary); }
+
+.note-prompt-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+/* A prompt-strip note is one line of briefing, so it is flatter than the
+   profile card version — no hover lift, no shadow, nothing that invites
+   clicking around while there is a session to write up. */
+.note-prompt .mini-note { background: rgba(0, 0, 0, 0.22); }
+.note-prompt .mini-note:hover { transform: none; box-shadow: none; }
+
+@media (max-width: 767px) {
+  .note-prompt { padding: 0.875rem 1rem; }
+  .mini-note-foot { flex-wrap: wrap; }
+}
+
+/* Notes are working memory, not part of the student's record. The print view is
+   the formal counselling document — an internal "try the drawing exercise"
+   scribble has no place in something handed to a parent or filed. */
+@media print {
+  .mini-notes,
+  .mini-note-composer,
+  .note-prompt { display: none !important; }
+}
+
+
+/* =============================================================================
+   V10 — AI TECHNICAL REPORT
+   =============================================================================
+   Synthesised from PsychE_Student_Telemetry bands only — see the Edge Function
+   header for why raw log text never reaches this. The two suggestion cards use
+   the existing .pill--blue / .pill--purple pair (same hues as the Mini Notes
+   Question/Approach tint) rather than the PRD's literal blue/green split:
+   green already means "healthy" in this app's risk colour language, and a
+   suggestion card is not a status.
+
+   The trend chip is deliberately neutral (.pill--muted), not colour-coded.
+   Longitudinal drift isn't computed in this version — a green/amber/red chip
+   here would claim a trend the system hasn't actually measured.
+============================================================================= */
+
+.ai-report-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.625rem 0.75rem;
+  margin-bottom: 1rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+.ai-report-notice svg { flex-shrink: 0; margin-top: 0.15rem; color: var(--accent-amber); }
+
+.ai-report {
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+}
+
+.ai-report-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.ai-report-theme { font-size: 1.05rem; font-weight: 600; margin: 0; color: var(--text-primary); }
+.ai-report-generated { font-size: 0.72rem; color: var(--text-muted); white-space: nowrap; }
+
+.ai-report-summary {
+  font-size: 0.9rem;
+  line-height: 1.55;
+  color: var(--text-primary);
+}
+
+.ai-report-block-label {
+  display: block;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin-bottom: 0.25rem;
+}
+.ai-report-block p { font-size: 0.85rem; color: var(--text-secondary); line-height: 1.5; }
+
+.ai-report-trajectory {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  padding: 0.5rem 0.625rem;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px dashed var(--border-subtle);
+}
+
+.ai-report-questions ol {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.ai-report-copy {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  background: none;
+  border: none;
+  color: var(--color-primary);
+  font-size: 0.72rem;
+  cursor: pointer;
+  padding: 0.15rem 0.3rem;
+}
+.ai-report-copy:hover { text-decoration: underline; }
+
+.ai-report-suggestions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.75rem;
+}
+
+.ai-report-suggestion {
+  padding: 0.75rem 0.875rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.025);
+}
+.ai-report-suggestion-action { font-size: 0.85rem; color: var(--text-primary); margin: 0 0 0.3rem; font-weight: 500; }
+.ai-report-suggestion-rationale { font-size: 0.78rem; color: var(--text-secondary); margin: 0 0 0.3rem; line-height: 1.45; }
+.ai-report-suggestion-term { font-size: 0.7rem; color: var(--text-muted); font-style: italic; margin: 0; }
+
+@media (max-width: 767px) {
+  .ai-report-suggestions { grid-template-columns: 1fr; }
+}
+
+/* The panel's root div carries .no-print (global rule above), same as Mini
+   Notes — this is a synthesis for the counsellor's own prep, not part of the
+   formal document handed to a parent. */
+
+
+/* =============================================================================
+   V11 — SUB-TOGGLE (Raw ↔ Formal / Quick ↔ Technical)
+   =============================================================================
+   One "fast view / deep view" idiom, reused inside both the History tab
+   (Raw Timeline ↔ Formal Reports) and the Summary tab (Quick ↔ Technical) —
+   deliberately not four separate top-level tabs, so a counsellor learns this
+   pattern once and it applies twice.
+============================================================================= */
+
+.sub-toggle {
+  display: flex;
+  gap: 0.25rem;
+  border-bottom: 1px solid var(--border-subtle);
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.sub-toggle-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+.sub-toggle-btn:hover { color: var(--text-primary); }
+.sub-toggle-btn--active { color: var(--text-primary); border-bottom-color: var(--color-primary); }
+
+/* ─── AI Summary card ────────────────────────────────────────────────────── */
+.ai-summary-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+}
+
+.ai-summary-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.ai-summary-theme { font-size: 1rem; font-weight: 600; margin: 0; color: var(--text-primary); }
+.ai-summary-age { font-size: 0.72rem; color: var(--text-muted); white-space: nowrap; }
+.ai-summary-crisp { font-size: 0.875rem; line-height: 1.55; color: var(--text-primary); }
+
+.ai-summary-bullets {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+.ai-summary-bullets strong { color: var(--text-primary); }
+
+/* ─── Formal Reports list ────────────────────────────────────────────────── */
+.formal-reports-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+}
+
+.formal-report-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.75rem 0.875rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.025);
+  text-align: left;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+  font-family: inherit;
+  color: inherit;
+}
+.formal-report-row:hover {
+  transform: translateY(-1px);
+  border-color: var(--border-active);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+}
+
+.formal-report-row-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.formal-report-row-date {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.formal-report-row-meta { font-size: 0.72rem; color: var(--text-muted); }
+.formal-report-row-preview {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+.formal-report-row-action {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.72rem;
+  color: var(--color-primary);
+}
