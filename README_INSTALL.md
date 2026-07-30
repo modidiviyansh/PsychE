@@ -53,7 +53,28 @@ directly in `PsychE_Settings.allowed_pins`.
 | `allowed_pins` | Ships with public defaults. |
 | Assessment library (`/library`) | The optional starter modules are **placeholders**, not validated instruments. A domain scored from a handful of items is not a measurement. |
 
-## 5. Nightly batch
+## 5. Optional — a clean-install test environment
+
+`npm run dev:v2` runs the app in `staging` mode against a separate Supabase
+project, which is the only way to exercise the **fresh-install** path without
+touching real data. Credentials are deliberately not committed; create
+`.env.staging` yourself:
+
+```
+VITE_SUPABASE_URL=https://<throwaway-project>.supabase.co
+VITE_SUPABASE_ANON_KEY=<its anon / publishable key>
+```
+
+Then run `schema/install.sql` against that blank project and:
+
+```bash
+npm run dev:v2      # http://localhost:5174
+```
+
+Useful for verifying the installer end-to-end, and for testing the upgrade path
+by dropping columns and re-running `install.sql` on data you can afford to lose.
+
+## 6. Nightly batch
 
 The analytics engines refresh via `psyche_run_daily_batch()`. Either use the
 included GitHub Action (`.github/workflows/daily_analytics.yml`, needs

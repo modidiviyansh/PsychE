@@ -1,6 +1,6 @@
 -- =============================================================================
 --  PsychE — Complete Database Installer
---  Version 6.0.0 · consolidated 2026-07-30
+--  Version 6.1.0 · consolidated 2026-07-30
 -- =============================================================================
 --
 --  ONE FILE. Paste into the Supabase SQL editor and run. That is the whole
@@ -85,13 +85,13 @@ CREATE TABLE IF NOT EXISTS "PsychE_Settings" (
     id                       INT           PRIMARY KEY DEFAULT 1,
     daily_session_capacity   INT           DEFAULT 15,
     allowed_pins             TEXT          DEFAULT '2001,0987,0999,2580',
-    app_version              VARCHAR(20)   DEFAULT '6.0.0',
+    app_version              VARCHAR(20)   DEFAULT '6.1.0',
     assessment_cooldown_days INT           DEFAULT 30,
     created_at               TIMESTAMPTZ   DEFAULT NOW()
 );
 
 INSERT INTO "PsychE_Settings" (id, daily_session_capacity, allowed_pins, app_version, assessment_cooldown_days)
-VALUES (1, 15, '2001,0987,0999,2580', '6.0.0', 30)
+VALUES (1, 15, '2001,0987,0999,2580', '6.1.0', 30)
 ON CONFLICT (id) DO NOTHING;
 
 -- ─── 2.3 Domains (7 psychological scoring domains) ───────────────────────────
@@ -208,24 +208,112 @@ CREATE TABLE IF NOT EXISTS "PsychE_Student_Telemetry" (
 
 -- =============================================================================
 --  SECTION 3 ── Upgrade path
---  No-ops on a fresh install. These exist so an OLDER database can be brought
---  up to 6.0.0 by running this same file.
+--
+--  No-ops on a fresh install; every column already exists from SECTION 2.
+--  These matter when running this file against an OLDER database: because
+--  CREATE TABLE IF NOT EXISTS silently skips a table that already exists, it
+--  cannot add columns introduced by later versions. Without this section an
+--  upgraded database would be missing them.
+--
+--  Every non-primary-key column is listed, so no version gap can be missed.
+--  Type and DEFAULT only — NOT NULL / UNIQUE / REFERENCES / CHECK are omitted
+--  because adding those to a populated table can fail, and they are already
+--  applied on fresh installs by SECTION 2.
 -- =============================================================================
 
-ALTER TABLE "PsychE_Modules"           ADD COLUMN IF NOT EXISTS domain_code   VARCHAR(10) REFERENCES "PsychE_Domains"(code);
-ALTER TABLE "PsychE_Modules"           ADD COLUMN IF NOT EXISTS domain_weight NUMERIC DEFAULT 1.0;
-ALTER TABLE "PsychE_Modules"           ADD COLUMN IF NOT EXISTS scale_min     NUMERIC DEFAULT 1;
-ALTER TABLE "PsychE_Modules"           ADD COLUMN IF NOT EXISTS scale_max     NUMERIC DEFAULT 4;
+-- PsychE_Students
+ALTER TABLE "PsychE_Students" ADD COLUMN IF NOT EXISTS student_id VARCHAR(50);
+ALTER TABLE "PsychE_Students" ADD COLUMN IF NOT EXISTS full_name VARCHAR(255);
+ALTER TABLE "PsychE_Students" ADD COLUMN IF NOT EXISTS fathers_name VARCHAR(255);
+ALTER TABLE "PsychE_Students" ADD COLUMN IF NOT EXISTS mothers_name VARCHAR(255);
+ALTER TABLE "PsychE_Students" ADD COLUMN IF NOT EXISTS mobile VARCHAR(20);
+ALTER TABLE "PsychE_Students" ADD COLUMN IF NOT EXISTS email VARCHAR(255);
+ALTER TABLE "PsychE_Students" ADD COLUMN IF NOT EXISTS course VARCHAR(100);
+ALTER TABLE "PsychE_Students" ADD COLUMN IF NOT EXISTS enrolled_date DATE;
+ALTER TABLE "PsychE_Students" ADD COLUMN IF NOT EXISTS risk_level VARCHAR(20) DEFAULT 'Low';
+ALTER TABLE "PsychE_Students" ADD COLUMN IF NOT EXISTS engagement_modifier INT DEFAULT 0;
+ALTER TABLE "PsychE_Students" ADD COLUMN IF NOT EXISTS profile_image TEXT;
+ALTER TABLE "PsychE_Students" ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
 
-ALTER TABLE "PsychE_Student_Telemetry" ADD COLUMN IF NOT EXISTS engine_status         TEXT;
+-- PsychE_Settings
+ALTER TABLE "PsychE_Settings" ADD COLUMN IF NOT EXISTS daily_session_capacity INT DEFAULT 15;
+ALTER TABLE "PsychE_Settings" ADD COLUMN IF NOT EXISTS allowed_pins TEXT DEFAULT '2001,0987,0999,2580';
+ALTER TABLE "PsychE_Settings" ADD COLUMN IF NOT EXISTS app_version VARCHAR(20) DEFAULT '6.1.0';
+ALTER TABLE "PsychE_Settings" ADD COLUMN IF NOT EXISTS assessment_cooldown_days INT DEFAULT 30;
+ALTER TABLE "PsychE_Settings" ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
+
+-- PsychE_Domains
+ALTER TABLE "PsychE_Domains" ADD COLUMN IF NOT EXISTS name VARCHAR(100);
+ALTER TABLE "PsychE_Domains" ADD COLUMN IF NOT EXISTS description TEXT;
+
+-- PsychE_Modules
+ALTER TABLE "PsychE_Modules" ADD COLUMN IF NOT EXISTS name VARCHAR(255);
+ALTER TABLE "PsychE_Modules" ADD COLUMN IF NOT EXISTS type VARCHAR(20);
+ALTER TABLE "PsychE_Modules" ADD COLUMN IF NOT EXISTS description TEXT;
+ALTER TABLE "PsychE_Modules" ADD COLUMN IF NOT EXISTS smart_keywords TEXT[] DEFAULT '{}';
+ALTER TABLE "PsychE_Modules" ADD COLUMN IF NOT EXISTS is_locked BOOLEAN DEFAULT FALSE;
+ALTER TABLE "PsychE_Modules" ADD COLUMN IF NOT EXISTS domain_code VARCHAR(10);
+ALTER TABLE "PsychE_Modules" ADD COLUMN IF NOT EXISTS domain_weight NUMERIC DEFAULT 1.0;
+ALTER TABLE "PsychE_Modules" ADD COLUMN IF NOT EXISTS scale_min NUMERIC DEFAULT 1;
+ALTER TABLE "PsychE_Modules" ADD COLUMN IF NOT EXISTS scale_max NUMERIC DEFAULT 4;
+ALTER TABLE "PsychE_Modules" ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
+
+-- PsychE_System_Tags
+ALTER TABLE "PsychE_System_Tags" ADD COLUMN IF NOT EXISTS tag_name VARCHAR(255);
+ALTER TABLE "PsychE_System_Tags" ADD COLUMN IF NOT EXISTS tag_category VARCHAR(100) DEFAULT 'General';
+ALTER TABLE "PsychE_System_Tags" ADD COLUMN IF NOT EXISTS color_hex VARCHAR(20) DEFAULT '#4ade80';
+ALTER TABLE "PsychE_System_Tags" ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
+
+-- PsychE_Questions
+ALTER TABLE "PsychE_Questions" ADD COLUMN IF NOT EXISTS module_id UUID;
+ALTER TABLE "PsychE_Questions" ADD COLUMN IF NOT EXISTS prompt_text TEXT;
+ALTER TABLE "PsychE_Questions" ADD COLUMN IF NOT EXISTS is_reverse_scored BOOLEAN DEFAULT FALSE;
+ALTER TABLE "PsychE_Questions" ADD COLUMN IF NOT EXISTS custom_labels JSONB DEFAULT '{"1": "Not True", "2": "A little true", "3": "Pretty true", "4": "Very true"}'::jsonb;
+ALTER TABLE "PsychE_Questions" ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;
+ALTER TABLE "PsychE_Questions" ADD COLUMN IF NOT EXISTS has_been_edited BOOLEAN DEFAULT FALSE;
+ALTER TABLE "PsychE_Questions" ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
+
+-- PsychE_Counseling_Logs
+ALTER TABLE "PsychE_Counseling_Logs" ADD COLUMN IF NOT EXISTS student_uuid UUID;
+ALTER TABLE "PsychE_Counseling_Logs" ADD COLUMN IF NOT EXISTS counselor_name VARCHAR(255);
+ALTER TABLE "PsychE_Counseling_Logs" ADD COLUMN IF NOT EXISTS session_date TIMESTAMPTZ;
+ALTER TABLE "PsychE_Counseling_Logs" ADD COLUMN IF NOT EXISTS scheduled_date DATE;
+ALTER TABLE "PsychE_Counseling_Logs" ADD COLUMN IF NOT EXISTS session_status VARCHAR(20) DEFAULT 'Scheduled';
+ALTER TABLE "PsychE_Counseling_Logs" ADD COLUMN IF NOT EXISTS interaction_type VARCHAR(50) DEFAULT 'Session';
+ALTER TABLE "PsychE_Counseling_Logs" ADD COLUMN IF NOT EXISTS reason VARCHAR(255);
+ALTER TABLE "PsychE_Counseling_Logs" ADD COLUMN IF NOT EXISTS student_response TEXT;
+ALTER TABLE "PsychE_Counseling_Logs" ADD COLUMN IF NOT EXISTS recommended_action TEXT;
+ALTER TABLE "PsychE_Counseling_Logs" ADD COLUMN IF NOT EXISTS file_updated BOOLEAN DEFAULT FALSE;
+ALTER TABLE "PsychE_Counseling_Logs" ADD COLUMN IF NOT EXISTS notification_sent BOOLEAN DEFAULT FALSE;
+ALTER TABLE "PsychE_Counseling_Logs" ADD COLUMN IF NOT EXISTS follow_up_date TIMESTAMPTZ;
+ALTER TABLE "PsychE_Counseling_Logs" ADD COLUMN IF NOT EXISTS follow_up_status VARCHAR(20) DEFAULT 'Pending';
+ALTER TABLE "PsychE_Counseling_Logs" ADD COLUMN IF NOT EXISTS assessment_data JSONB;
+ALTER TABLE "PsychE_Counseling_Logs" ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
+
+-- PsychE_Student_Tags
+ALTER TABLE "PsychE_Student_Tags" ADD COLUMN IF NOT EXISTS student_uuid UUID;
+ALTER TABLE "PsychE_Student_Tags" ADD COLUMN IF NOT EXISTS tag_id UUID;
+ALTER TABLE "PsychE_Student_Tags" ADD COLUMN IF NOT EXISTS assigned_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
+
+-- PsychE_Responses
+ALTER TABLE "PsychE_Responses" ADD COLUMN IF NOT EXISTS log_id UUID;
+ALTER TABLE "PsychE_Responses" ADD COLUMN IF NOT EXISTS question_id UUID;
+ALTER TABLE "PsychE_Responses" ADD COLUMN IF NOT EXISTS score_value INTEGER;
+ALTER TABLE "PsychE_Responses" ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
+
+-- PsychE_Student_Telemetry
+ALTER TABLE "PsychE_Student_Telemetry" ADD COLUMN IF NOT EXISTS student_uuid UUID;
+ALTER TABLE "PsychE_Student_Telemetry" ADD COLUMN IF NOT EXISTS calculated_at TIMESTAMPTZ DEFAULT NOW();
+ALTER TABLE "PsychE_Student_Telemetry" ADD COLUMN IF NOT EXISTS metrics_payload JSONB;
+ALTER TABLE "PsychE_Student_Telemetry" ADD COLUMN IF NOT EXISTS engine_status TEXT;
 ALTER TABLE "PsychE_Student_Telemetry" ADD COLUMN IF NOT EXISTS confidence_multiplier NUMERIC;
-ALTER TABLE "PsychE_Student_Telemetry" ADD COLUMN IF NOT EXISTS eti_score             NUMERIC;
-ALTER TABLE "PsychE_Student_Telemetry" ADD COLUMN IF NOT EXISTS eti_data              JSONB;
-ALTER TABLE "PsychE_Student_Telemetry" ADD COLUMN IF NOT EXISTS composite_score       NUMERIC;
-ALTER TABLE "PsychE_Student_Telemetry" ADD COLUMN IF NOT EXISTS composite_confidence  NUMERIC;
-ALTER TABLE "PsychE_Student_Telemetry" ADD COLUMN IF NOT EXISTS composite_data        JSONB;
-ALTER TABLE "PsychE_Student_Telemetry" ADD COLUMN IF NOT EXISTS rsi_score             NUMERIC;
-ALTER TABLE "PsychE_Student_Telemetry" ADD COLUMN IF NOT EXISTS rsi_data              JSONB;
+ALTER TABLE "PsychE_Student_Telemetry" ADD COLUMN IF NOT EXISTS eti_score NUMERIC;
+ALTER TABLE "PsychE_Student_Telemetry" ADD COLUMN IF NOT EXISTS eti_data JSONB;
+ALTER TABLE "PsychE_Student_Telemetry" ADD COLUMN IF NOT EXISTS composite_score NUMERIC;
+ALTER TABLE "PsychE_Student_Telemetry" ADD COLUMN IF NOT EXISTS composite_confidence NUMERIC;
+ALTER TABLE "PsychE_Student_Telemetry" ADD COLUMN IF NOT EXISTS composite_data JSONB;
+ALTER TABLE "PsychE_Student_Telemetry" ADD COLUMN IF NOT EXISTS rsi_score NUMERIC;
+ALTER TABLE "PsychE_Student_Telemetry" ADD COLUMN IF NOT EXISTS rsi_data JSONB;
 
 -- Backfill scale defaults for modules created before these columns existed.
 UPDATE "PsychE_Modules" SET scale_min = 1 WHERE scale_min IS NULL;
