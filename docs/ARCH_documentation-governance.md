@@ -199,6 +199,13 @@ constants (`WORKING_DAYS_PER_TERM`, `TARGET_CONTACTS_PER_TERM`, `PLANNED_ENROLME
 because no new DB columns were permitted. Owns the measured/modelled boundary — see
 `ARCH_technical-specs.md` §9.1.
 
+### `src/analytics/operationalDay.ts`
+**Purpose:** **V6.2** Pure shaping for the counsellor's homepage — local-timezone date keys, scheduled/
+follow-up bucketing (today / late / ahead / undated), paired-commitment dedupe, today's load against
+capacity, the momentum window and the focus sentence. No Supabase, no React. Owns the rule that "today"
+is a **local** calendar concept, and the `dedupeFollowUps()` pairing rule that matches the
+`'Follow-up for: '` prefix written by `AddLog.tsx`.
+
 ### `src/analytics/ColdStart.ts`
 **Purpose:** V5 — `EngineStatus` type + `calculateConfidenceMultiplier()`, the frontend-only display ramp for the "Building profile — N% Confidence" badge. Does not call Supabase; pairs with (but does not duplicate) the SQL-side `psyche_get_engine_status()` in `v5_analytics_migration.sql`.
 
@@ -223,6 +230,7 @@ because no new DB columns were permitted. Owns the measured/modelled boundary �
 | `src/components/AssessmentWizard.tsx` | Step-through assessment administration UI |
 | `src/components/LiveAssessmentModal.tsx` | Modal for in-session assessment scoring |
 | `src/components/TelemetryPanel.tsx` | **V7.2** Presentational components for the Telemetry Analytics tab (evidence strip, domain profile, tension strip, engagement panel, composite contribution, RSI panel). Pure props-in — no Supabase, no page state. See `GUIDE_developer.md` §9.7 |
+| `src/components/DashboardPanels.tsx` | **V6.2** Presentational components for the homepage (focus hero + slot meter, today's line-up, needs attention, drifting students, momentum, coming up, high-risk watchlist). Pure props-in — no Supabase, no page state; mutation handlers arrive via the `ScheduleControls` prop bundle owned by `Dashboard.tsx` |
 
 ### Pages
 
@@ -316,6 +324,8 @@ If a rule appears in more than one doc file:
 | `src/analytics/ColdStart.ts` | Code — Utility | V5 |
 | `src/analytics/programmeHealth.ts` | Code — Pure analytics | V8 |
 | `src/components/ProgrammeHealthPanel.tsx` | Component — presentational | V8 |
+| `src/analytics/operationalDay.ts` | Code — Pure analytics | V6.2 |
+| `src/components/DashboardPanels.tsx` | Component — presentational | V6.2 |
 | `v7_2_eti_followthrough_fix.sql` | Schema — bugfix (function only) | V7.2 |
 | `v7_3_followup_autoclose.sql` | Schema — trigger + function | V7.3 |
 | `v8_programme_health.sql` | Schema — read-only aggregate function | V8 |

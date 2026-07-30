@@ -4,6 +4,7 @@ import { Camera, ArrowLeft, Save, User, Edit2 } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { toTitleCase } from '../utils/stringFormatter';
+import { isValidStudentId, STUDENT_ID_PATTERN, STUDENT_ID_HINT, STUDENT_ID_PLACEHOLDER } from '../utils/studentId';
 
 const container = {
   hidden: { opacity: 0 },
@@ -97,10 +98,11 @@ export const AddStudent: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    // Strict Regex Validation (BUG-001 & BUG-002)
-    const idRegex = /^STU-\d{4}-\d{3,4}$/;
-    if (!idRegex.test(studentId)) {
-      alert("ID must follow the format STU-YYYY-XXX");
+    // Strict Regex Validation (BUG-001 & BUG-002).
+    // Pattern owned by utils/studentId.ts — the CSV importer reads the same
+    // constant, so the two paths can no longer disagree about what is valid.
+    if (!isValidStudentId(studentId)) {
+      alert(`Student ID must look like ${STUDENT_ID_HINT}.`);
       return;
     }
 
@@ -193,12 +195,30 @@ export const AddStudent: React.FC = () => {
                 required
                 type="text" 
                 className="input" 
-                placeholder="e.g. STU-2026-042"
-                pattern="^STU-\d{4}-\d{3,4}$"
+                placeholder={STUDENT_ID_PLACEHOLDER}
+                pattern={STUDENT_ID_PATTERN}
+                // No help line under the field. The format lives in the native
+                // validation bubble, so it appears exactly when it is needed.
+                // Chrome no longer folds `title` into that bubble and shows a
+                // generic "Please match the format requested" instead — and
+                // because pattern validation blocks submit, handleSubmit's
+                // friendlier message never gets the chance to run. Setting the
+                // message explicitly is what actually reaches the user.
+                onInvalid={(e) => {
+                  const el = e.currentTarget;
+                  // Reset first so the browser re-derives why this is invalid;
+                  // a stale custom message would otherwise mask the real reason
+                  // and keep a now-valid field rejected. Only override the
+                  // format case — an empty field should still say "fill this
+                  // out", not quote an ID format at someone who typed nothing.
+                  el.setCustomValidity('');
+                  if (el.validity.patternMismatch) {
+                    el.setCustomValidity(`Student ID looks like ${STUDENT_ID_HINT}`);
+                  }
+                }}
                 value={studentId}
-                onChange={(e) => setStudentId(e.target.value)}
+                onChange={(e) => { e.currentTarget.setCustomValidity(''); setStudentId(e.target.value); }}
               />
-              <p className="text-xs text-gray-500 mt-1">Format: STU-YYYY-XXX</p>
             </div>
             <div style={{ flex: 1 }}>
               <label className="text-h3" style={{ fontSize: '0.875rem', display: 'block', marginBottom: '0.5rem' }}>Full Name *</label>

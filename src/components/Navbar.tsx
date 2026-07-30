@@ -56,7 +56,7 @@ export const Navbar: React.FC = () => {
       initial={{ y: -50, opacity: 0 }}
       animate={{ y: 0, opacity: 1 }}
       transition={{ duration: 0.5, ease: 'easeOut' }}
-      className="navbar no-print mobile-stack" 
+      className="navbar no-print" 
       style={{
         display: 'flex',
         alignItems: 'center',
@@ -71,10 +71,11 @@ export const Navbar: React.FC = () => {
         zIndex: 50
       }}
     >
-      <div className="flex items-center gap-4">
+      <div className="navbar-brand flex items-center gap-4">
         <Link to="/" className="flex items-center gap-3">
           <motion.div 
             whileHover={{ rotate: 15, scale: 1.1 }}
+            className="navbar-mark"
             style={{
               background: 'linear-gradient(135deg, var(--color-primary), #8b5cf6)',
               color: 'white',
@@ -90,13 +91,13 @@ export const Navbar: React.FC = () => {
             <BookOpen size={20} />
           </motion.div>
           <div className="flex" style={{ flexDirection: 'column' }}>
-            <span className="text-h3" style={{ letterSpacing: '-0.02em', lineHeight: '1.2' }}>UPsych : GCM Edition</span>
-            <span className="text-muted" style={{ fontSize: '0.75rem', letterSpacing: '0.05em', textTransform: 'uppercase' }}>GCM Convent School</span>
+            <span className="navbar-title text-h3" style={{ letterSpacing: '-0.02em', lineHeight: '1.2' }}>UPsych : GCM Edition</span>
+            <span className="navbar-sub text-muted" style={{ fontSize: '0.75rem', letterSpacing: '0.05em', textTransform: 'uppercase' }}>GCM Convent School</span>
           </div>
         </Link>
       </div>
 
-      <div className="flex items-center justify-center hidden-mobile" style={{ flexGrow: 1, maxWidth: '600px', margin: '0 2rem' }} ref={searchRef}>
+      <div className="navbar-search flex items-center justify-center hidden-mobile" style={{ flexGrow: 1, maxWidth: '600px', margin: '0 2rem' }} ref={searchRef}>
         <motion.div 
           whileFocus={{ scale: 1.02 }}
           style={{ position: 'relative', width: '100%' }}
@@ -196,7 +197,7 @@ export const Navbar: React.FC = () => {
         </motion.div>
       </div>
 
-      <div className="flex items-center gap-4 flex-wrap justify-center">
+      <div className="navbar-actions flex items-center gap-4 flex-wrap justify-center">
         <motion.button 
           onClick={() => navigate('/directory')}
           whileHover={{ scale: 1.05 }}
@@ -211,7 +212,7 @@ export const Navbar: React.FC = () => {
           }}
         >
           <Users size={18} className="text-primary" style={{ color: 'var(--color-primary)' }} />
-          <span style={{ fontWeight: 600, color: 'var(--color-text)' }}>Directory</span>
+          <span className="nav-btn-label" style={{ fontWeight: 600, color: 'var(--color-text)' }}>Directory</span>
         </motion.button>
         <motion.button 
           onClick={() => navigate('/add-student')}
@@ -221,7 +222,7 @@ export const Navbar: React.FC = () => {
           style={{ background: 'linear-gradient(135deg, var(--color-primary), #8b5cf6)', border: 'none', boxShadow: '0 4px 12px rgba(94, 106, 210, 0.3)' }}
         >
           <UserPlus size={16} />
-          Add Student
+          <span className="nav-btn-label">Add Student</span>
         </motion.button>
         <motion.button 
           onClick={() => navigate('/library')}
@@ -239,7 +240,7 @@ export const Navbar: React.FC = () => {
         >
           <Tag size={20} />
         </motion.button>
-        <div style={{ width: '1px', height: '24px', backgroundColor: 'var(--color-border)' }}></div>
+        <div className="navbar-divider" style={{ width: '1px', height: '24px', backgroundColor: 'var(--color-border)' }}></div>
         <motion.button 
           onClick={() => navigate('/analytics')}
           whileHover={{ scale: 1.1, color: 'var(--color-primary)' }}

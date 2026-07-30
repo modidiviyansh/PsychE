@@ -195,7 +195,7 @@ export const Settings: React.FC = () => {
       </div>
 
       {/* ── Tab Navigation ── */}
-      <div style={{
+      <div className="tab-bar" style={{
         display: 'flex',
         alignItems: 'center',
         gap: '4px',

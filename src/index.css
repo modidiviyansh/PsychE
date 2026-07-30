@@ -1331,3 +1331,270 @@ p, h1, h2, h3, h4, h5, h6, span {
 }
 
 
+
+/* =============================================================================
+   V6.2 — RESPONSIVE LAYER
+   =============================================================================
+   ADDITIVE BY CONTRACT. Every rule below lives inside a @media block and no
+   base rule above is modified, so any single range can be reverted by deleting
+   its block and the desktop layout is provably untouched.
+
+   Breakpoints, and why each exists:
+     ≤767px       phone   — navbar was 229px tall (27% of the viewport) because
+                            `mobile-stack` forced the whole bar into a column.
+     768–1023px   tablet  — there was NO breakpoint here at all, so tablets got
+                            desktop's 12-column grid and produced 233px-wide
+                            cards holding charts and tables.
+     768–1199px   navbar  — deliberately WIDER than the grid range: brand +
+                            600px search + 10 action controls needs ~1400px, so
+                            the bar still wrapped raggedly at 1024–1199 even
+                            though the grid was fine there.
+     ≥1440px      large   — content was capped at 1200px, leaving dead margins.
+
+   `!important` appears only where a rule must beat an inline style that lives
+   in a component's style prop (Navbar's padding, the hero's flex row). It is
+   not used to win specificity fights against other stylesheet rules.
+============================================================================= */
+
+/* ─── Navbar: compact single-purpose rows instead of ragged wrapping ─────── */
+@media (min-width: 768px) and (max-width: 1199px) {
+  .navbar {
+    padding: 0.75rem 1.25rem !important;
+    flex-wrap: wrap !important;
+    row-gap: 0.75rem !important;
+  }
+  /* Search drops to its own full-width row rather than squeezing the brand
+     and the action cluster into illegible slivers. */
+  .navbar-search {
+    order: 3;
+    flex-basis: 100% !important;
+    margin: 0 !important;
+    max-width: none !important;
+  }
+  .navbar-actions { gap: 0.6rem !important; }
+  .navbar-title { font-size: 1.05rem; }
+}
+
+@media (min-width: 768px) and (max-width: 1023px) {
+  /* Icon-only actions: the labels are the first thing to go, since every one
+     of these controls already carries a title tooltip. */
+  .nav-btn-label { display: none !important; }
+  .navbar-actions .btn { padding: 0.5rem !important; margin-right: 0 !important; }
+}
+
+@media (max-width: 767px) {
+  .navbar {
+    padding: 0.625rem 0.875rem !important;
+    flex-direction: row !important;   /* undo any inherited column stacking */
+    flex-wrap: wrap !important;
+    gap: 0.5rem !important;
+    row-gap: 0.5rem !important;
+  }
+  .navbar-brand { flex: 1 1 auto; min-width: 0; }
+  .navbar-mark  { width: 32px !important; height: 32px !important; }
+  .navbar-title { font-size: 0.95rem !important; }
+  .navbar-sub   { display: none !important; }
+
+  /* Action cluster becomes a full-width toolbar on its own row, evenly spread
+     and explicitly nowrap — wrapping is what produced the 229px bar. */
+  .navbar-actions {
+    flex-basis: 100%;
+    flex-wrap: nowrap !important;
+    justify-content: space-between !important;
+    gap: 0.25rem !important;
+  }
+  .nav-btn-label   { display: none !important; }
+  .navbar-divider  { display: none !important; }
+  .navbar-actions .btn {
+    padding: 0.45rem !important;
+    margin-right: 0 !important;
+    flex-shrink: 0;
+  }
+}
+
+/* ─── Tablet grid: content-heavy panels full width, compact panels paired ── */
+@media (min-width: 768px) and (max-width: 1023px) {
+  .main-content { padding: 1.5rem; }
+  .bento-grid   { gap: 1.25rem; }
+
+  /* Panels carrying tables, charts or session rows need the full measure. */
+  .col-span-7,
+  .col-span-8,
+  .col-span-9,
+  .col-span-12,
+  .col-span-full { grid-column: 1 / -1; }
+
+  /* Compact panels share a row — half of ~750px is a comfortable 360px. */
+  .col-span-3,
+  .col-span-4,
+  .col-span-5,
+  .col-span-6 { grid-column: span 6; }
+
+  .text-h1 { font-size: 1.75rem; }
+}
+
+/* ─── Phone: page-level ─────────────────────────────────────────────────── */
+@media (max-width: 767px) {
+  /* Dashboard hero: greeting and actions stack instead of overflowing. */
+  .dash-hero {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 1rem !important;
+  }
+  .dash-hero-actions { width: 100%; }
+  .dash-hero-actions .btn { flex: 1 1 auto; justify-content: center; }
+}
+
+/* Narrow phones: give the student name a full line of its own before the
+   badges and row actions, which otherwise crush it to ~120px. */
+@media (max-width: 560px) {
+  .dash-row      { flex-wrap: wrap !important; }
+  .dash-identity { flex: 1 1 100% !important; }
+  .dash-needbar  { width: 88px !important; }
+}
+
+/* ─── Large desktop: use the space instead of leaving dead margins ───────── */
+@media (min-width: 1440px) {
+  .main-content { max-width: 1340px; padding: 2rem 2.5rem; }
+  .bento-grid   { gap: 1.75rem; }
+}
+
+@media (min-width: 1800px) {
+  .main-content { max-width: 1560px; }
+}
+
+/* ─── Print / A4 additions ──────────────────────────────────────────────── */
+@media print {
+  /* Charts are sized from their container at render time; without this they
+     can carry an inline pixel width wider than the printable page. */
+  .recharts-responsive-container,
+  .recharts-wrapper,
+  .recharts-surface { max-width: 100% !important; }
+
+  /* Horizontal scroll containers must spill onto the page, not clip. */
+  .table-scroll { overflow: visible !important; }
+
+  /* Card rows should not be split across a page boundary mid-record. */
+  .dash-row { page-break-inside: avoid; break-inside: avoid; }
+}
+
+/* =============================================================================
+   V6.2 — MISSING UTILITY DEFINITIONS
+   =============================================================================
+   The markup across this app is written in Tailwind idiom, but Tailwind is NOT
+   installed (no `tailwindcss` dependency, no config, no @tailwind directives —
+   only `tailwind-merge`, which merges class strings and defines nothing). The
+   utilities above were hand-written as needed, and 24 class names used in JSX
+   were never among them, so they silently resolved to nothing:
+
+     gap-3  mb-1  mb-2  mb-3  mb-8  mb-12  ml-1  mt-2
+     p-4  p-8  px-4  py-3  py-4
+     flex-1  flex-col  w-full  items-start
+     justify-center  justify-start  justify-end
+     text-left  text-center  text-right
+
+   61 usages across 14 files. This is why spacing looked arbitrary — e.g. the
+   navbar brand's `gap-3` produced no gap at all, so the logo sat flush against
+   the title. Every selector below previously matched nothing, so defining them
+   cannot override an existing rule; it restores the spacing the markup already
+   asked for. Inline `style` props still win where both exist.
+
+   Scale is 1 unit = 0.25rem, matching the already-defined gap-2 / gap-4 /
+   mb-4 / mb-6 / mt-4.
+============================================================================= */
+
+/* ─── Spacing ────────────────────────────────────────────────────────────── */
+.gap-3  { gap: 0.75rem; }
+.mb-1   { margin-bottom: 0.25rem; }
+.mb-2   { margin-bottom: 0.5rem; }
+.mb-3   { margin-bottom: 0.75rem; }
+.mb-8   { margin-bottom: 2rem; }
+.mb-12  { margin-bottom: 3rem; }
+.ml-1   { margin-left: 0.25rem; }
+.mt-2   { margin-top: 0.5rem; }
+.p-4    { padding: 1rem; }
+.p-8    { padding: 2rem; }
+.px-4   { padding-left: 1rem;  padding-right: 1rem; }
+.py-3   { padding-top: 0.75rem; padding-bottom: 0.75rem; }
+.py-4   { padding-top: 1rem;    padding-bottom: 1rem; }
+
+/* ─── Layout ─────────────────────────────────────────────────────────────── */
+/* min-width:0 is deliberate: without it a flex child refuses to shrink below
+   its content width, which is what breaks text-overflow:ellipsis inside rows. */
+.flex-1         { flex: 1 1 0%; min-width: 0; }
+.flex-col       { flex-direction: column; }
+.w-full         { width: 100%; }
+.items-start    { align-items: flex-start; }
+.justify-center { justify-content: center; }
+.justify-start  { justify-content: flex-start; }
+.justify-end    { justify-content: flex-end; }
+.text-left      { text-align: left; }
+.text-center    { text-align: center; }
+.text-right     { text-align: right; }
+
+/* =============================================================================
+   V6.2 — RESPONSIVE FIXES FOR FIXED-WIDTH LAYOUTS
+   =============================================================================
+   Three layouts had no small-screen handling at all and were not merely ugly
+   but unusable. Measured at a 390px viewport before this block existed:
+
+     /library   .master-pane is a hard 320px inside a 310px shell, leaving the
+                detail pane exactly 0px wide — the Assessment CMS could not be
+                used on a phone at all.
+     /tags      .data-grid-container sets overflow:hidden, so a 430px-wide grid
+                in a 310px shell CLIPPED the actions column rather than
+                scrolling to it. Edit and delete were unreachable.
+     /settings  the 3-tab bar is a nowrap flex row measuring ~471px, bleeding
+                past the viewport and cut off by .app-container's overflow-x.
+
+   Additive as above: each rule targets a range that previously had none.
+============================================================================= */
+
+/* ─── Master-detail: stack the two panes instead of starving one ─────────── */
+@media (max-width: 1023px) {
+  .master-detail {
+    flex-direction: column;
+    height: auto;
+  }
+  .master-pane {
+    width: 100%;
+    border-right: none;
+    border-bottom: 1px solid var(--border-subtle);
+    /* Capped rather than free-growing so the list stays scrollable and the
+       detail pane below it remains reachable without a long scroll. */
+    max-height: 45vh;
+  }
+  .detail-pane { min-height: 55vh; }
+  .detail-pane-inner { padding: 1.25rem; }
+}
+
+/* ─── Data grid: scroll to the actions column instead of clipping it ─────── */
+@media (max-width: 1023px) {
+  .data-grid-container {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  /* Without a floor the columns crush into unreadable slivers before the
+     container ever decides to scroll. */
+  .data-grid-table { min-width: 560px; }
+}
+
+/* ─── Tab bars: scroll horizontally rather than bleed off-screen ─────────── */
+.tab-bar {
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.tab-bar::-webkit-scrollbar { display: none; }
+.tab-bar > * { flex-shrink: 0; }
+
+/* ─── Tables on phones: scroll rather than wrap a value across three lines ─
+   .table-scroll already provides overflow-x:auto, but a table with no
+   intrinsic width simply shrinks to fit its container, so instead of scrolling
+   it wrapped short atomic values ("STU-3923-234") over three lines. Preventing
+   the wrap lets the table exceed the wrapper, which is what makes the existing
+   scroll container actually engage. Content-driven on purpose — a narrow table
+   stays narrow, so nothing scrolls that does not need to. */
+@media (max-width: 767px) {
+  .table-scroll th,
+  .table-scroll td { white-space: nowrap; }
+}

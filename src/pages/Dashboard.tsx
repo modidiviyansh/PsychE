@@ -1,18 +1,33 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { Users, Clock, Download, Plus, FileText, ChevronRight, Calendar, Search, ShieldCheck, Trash, Check, XCircle } from 'lucide-react';
+import { Users, Clock, Download, FileText, ChevronRight, Calendar } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import Papa from 'papaparse';
-import { formatDisplayDate, isOverdue } from '../utils/dateFormatter';
-import { toSentenceCase } from '../utils/stringFormatter';
+import { formatDisplayDate, parseInputDate } from '../utils/dateFormatter';
+import { toSentenceCase, toTitleCase } from '../utils/stringFormatter';
+import { isValidStudentId, STUDENT_ID_HINT } from '../utils/studentId';
+import { getDailyCapacity } from '../lib/capacity';
+import { MIN_COMPOSITE_CONFIDENCE } from '../types';
+import { underServed } from '../analytics/programmeHealth';
+import type { ProgrammeHealthPayload, StudentRollup } from '../analytics/programmeHealth';
+import {
+  bucketScheduled, bucketFollowUps, dedupeFollowUps, dayLoad, momentum,
+  focusState, greeting, dateKey, todayKey, localDayBounds
+} from '../analytics/operationalDay';
+import type { ScheduledRow, FollowUpRow } from '../analytics/operationalDay';
+import {
+  FocusHero, TodayLineUp, AttentionPanel, DriftPanel, MomentumPanel,
+  AheadPanel, WatchlistPanel
+} from '../components/DashboardPanels';
+import type { ScheduleControls } from '../components/DashboardPanels';
 
 const container = {
   hidden: { opacity: 0 },
   show: {
     opacity: 1,
     transition: {
-      staggerChildren: 0.1
+      staggerChildren: 0.06
     }
   }
 };
@@ -22,19 +37,58 @@ const item = {
   show: { opacity: 1, y: 0, transition: { type: 'spring' as const, stiffness: 300, damping: 24 } }
 };
 
+/** Trailing window for the momentum sparkline. */
+const MOMENTUM_DAYS = 14;
+/** Window handed to psyche_programme_health for the triage list. Matches /analytics. */
+const TRIAGE_WINDOW_DAYS = 180;
+
+interface WatchlistStudent {
+  id: string;
+  full_name: string;
+  student_id: string | null;
+  course: string | null;
+}
+
+/**
+ * Dashboard — the counsellor's operational day.
+ *
+ * Ordered by urgency rather than by data source: what is on today's plate, what
+ * has slipped, who is drifting, then the practice's pulse and the bulk tools.
+ * Presentation lives in components/DashboardPanels.tsx and all date arithmetic
+ * in analytics/operationalDay.ts; this file owns fetching and mutation only.
+ *
+ * Two deliberate choices worth knowing about:
+ *  · Today's figures are counted on the LOCAL clock, not from
+ *    psyche_programme_health's session_date::date buckets (which are in the
+ *    database's timezone). A dashboard that is a day out is worse than none.
+ *  · The triage list reuses the V6 underServed() logic and its confidence floor
+ *    verbatim, so /analytics and this page can never disagree about who needs
+ *    seeing.
+ */
 export const Dashboard: React.FC = () => {
   const navigate = useNavigate();
+
+  // ---- core (fast) -------------------------------------------------------
   const [recentLogs, setRecentLogs] = useState<any[]>([]);
   const [totalStudents, setTotalStudents] = useState<number>(0);
   const [sessionsThisMonth, setSessionsThisMonth] = useState<number>(0);
-  const [upcomingFollowUps, setUpcomingFollowUps] = useState<any[]>([]);
-  const [overdueFollowUps, setOverdueFollowUps] = useState<any[]>([]);
-  const [highRiskStudents, setHighRiskStudents] = useState<any[]>([]);
+  const [scheduled, setScheduled] = useState<ScheduledRow[]>([]);
+  const [followUps, setFollowUps] = useState<FollowUpRow[]>([]);
+  const [completedByDay, setCompletedByDay] = useState<{ day: string; completed: number }[]>([]);
+  const [highRiskStudents, setHighRiskStudents] = useState<WatchlistStudent[]>([]);
+  const [capacity, setCapacity] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // ---- triage (slower, non-blocking) ------------------------------------
+  const [health, setHealth] = useState<ProgrammeHealthPayload | null>(null);
+  const [healthLoading, setHealthLoading] = useState(true);
+  const [healthError, setHealthError] = useState<string | null>(null);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
-  
+
   const [rescheduleId, setRescheduleId] = useState<string | null>(null);
   const [newDate, setNewDate] = useState('');
+  const [importing, setImporting] = useState(false);
 
   useEffect(() => {
     document.title = "UPsych : GCM Edition | Dashboard";
@@ -42,28 +96,60 @@ export const Dashboard: React.FC = () => {
 
   useEffect(() => {
     fetchDashboardData();
+    fetchTriage();
   }, []);
 
   async function fetchDashboardData() {
     try {
+      const now = new Date();
+      // Upper bound for every "has already happened" filter below. Taken from
+      // the local day so a session logged this evening is never excluded.
+      const { end: tomorrowStart } = localDayBounds(now);
+
       // Fetch total students
       const { count: studentCount } = await supabase
         .from('PsychE_Students')
         .select('*', { count: 'exact', head: true });
-      
+
       if (studentCount !== null) setTotalStudents(studentCount);
 
-      // Fetch sessions this month
-      const startOfMonth = new Date();
+      // Sessions completed this month. Scoped to Completed deliberately —
+      // counting Scheduled and Draft rows here inflated the figure with work
+      // that had not happened yet.
+      const startOfMonth = new Date(now);
       startOfMonth.setDate(1);
       startOfMonth.setHours(0, 0, 0, 0);
 
       const { count: sessionCount } = await supabase
         .from('PsychE_Counseling_Logs')
         .select('*', { count: 'exact', head: true })
-        .gte('session_date', startOfMonth.toISOString());
-      
+        .eq('session_status', 'Completed')
+        .gte('session_date', startOfMonth.toISOString())
+        .lt('session_date', tomorrowStart);
+
       if (sessionCount !== null) setSessionsThisMonth(sessionCount);
+
+      // Completed sessions across the momentum window. Fetched as rows rather
+      // than aggregated in SQL so the day buckets are cut on the LOCAL clock —
+      // session_date::date in the database would bucket in the DB's timezone
+      // and can shift an evening session to the previous day.
+      const windowStart = new Date(now);
+      windowStart.setHours(0, 0, 0, 0);
+      windowStart.setDate(windowStart.getDate() - (MOMENTUM_DAYS - 1));
+
+      const { data: completedRows } = await supabase
+        .from('PsychE_Counseling_Logs')
+        .select('session_date')
+        .eq('session_status', 'Completed')
+        .gte('session_date', windowStart.toISOString())
+        .lt('session_date', tomorrowStart);
+
+      const tally = new Map<string, number>();
+      (completedRows ?? []).forEach(r => {
+        const k = dateKey(r.session_date);
+        if (k) tally.set(k, (tally.get(k) ?? 0) + 1);
+      });
+      setCompletedByDay(Array.from(tally, ([day, completed]) => ({ day, completed })));
 
       // Fetch recent logs (Exclude future logs using Timeline Query Guard BUG-004)
       const { data: logsData } = await supabase
@@ -77,7 +163,7 @@ export const Dashboard: React.FC = () => {
         `)
         .lte('session_date', new Date().toISOString())
         .order('session_date', { ascending: false })
-        .limit(4);
+        .limit(5);
 
       if (logsData) {
         const formattedLogs = logsData.map((log: any) => ({
@@ -92,22 +178,51 @@ export const Dashboard: React.FC = () => {
         setRecentLogs(formattedLogs);
       }
 
-      // Fetch Scheduled Sessions (All) and explicitly filter using Date Utility
+      // All open scheduled sessions. Bucketed client-side into today / late /
+      // ahead / undated so a single query serves three panels.
       const { data: scheduledData } = await supabase
         .from('PsychE_Counseling_Logs')
         .select(`
           id, reason, scheduled_date, student_uuid,
-          PsychE_Students (full_name, student_id)
+          PsychE_Students (full_name, student_id, risk_level)
         `)
         .eq('session_status', 'Scheduled');
 
       if (scheduledData) {
-        // OVERDUE logic fix (BUG-003 & BUG-005)
-        const overdue = scheduledData.filter(fu => isOverdue(fu.scheduled_date)).sort((a, b) => new Date(a.scheduled_date).getTime() - new Date(b.scheduled_date).getTime());
-        const upcoming = scheduledData.filter(fu => !isOverdue(fu.scheduled_date)).sort((a, b) => new Date(a.scheduled_date).getTime() - new Date(b.scheduled_date).getTime());
-        
-        setOverdueFollowUps(overdue.slice(0, 3));
-        setUpcomingFollowUps(upcoming.slice(0, 3));
+        setScheduled(scheduledData.map((r: any) => ({
+          id: r.id,
+          reason: r.reason,
+          scheduled_date: r.scheduled_date,
+          student_uuid: r.student_uuid,
+          student_name: r.PsychE_Students?.full_name || 'Unknown Student',
+          student_sid: r.PsychE_Students?.student_id ?? null,
+          risk_level: r.PsychE_Students?.risk_level ?? null
+        })));
+      }
+
+      // Outstanding follow-ups. The NOT NULL date filter is essential: the
+      // column's DEFAULT 'Pending' means a NULL date is the default firing, not
+      // a commitment the counsellor made (v7_2).
+      const { data: followUpData } = await supabase
+        .from('PsychE_Counseling_Logs')
+        .select(`
+          id, reason, follow_up_date, student_uuid,
+          PsychE_Students (full_name, student_id)
+        `)
+        .eq('follow_up_status', 'Pending')
+        .not('follow_up_date', 'is', null)
+        .order('follow_up_date', { ascending: true })
+        .limit(60);
+
+      if (followUpData) {
+        setFollowUps(followUpData.map((r: any) => ({
+          id: r.id,
+          reason: r.reason,
+          follow_up_date: r.follow_up_date,
+          student_uuid: r.student_uuid,
+          student_name: r.PsychE_Students?.full_name || 'Unknown Student',
+          student_sid: r.PsychE_Students?.student_id ?? null
+        })));
       }
 
       // Fetch High Risk Students
@@ -115,16 +230,32 @@ export const Dashboard: React.FC = () => {
         .from('PsychE_Students')
         .select('id, full_name, student_id, course')
         .eq('risk_level', 'High')
-        .limit(3);
+        .limit(4);
 
       if (riskData) {
-        setHighRiskStudents(riskData);
+        setHighRiskStudents(riskData as WatchlistStudent[]);
       }
+
+      setCapacity(await getDailyCapacity());
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
     } finally {
       setLoading(false);
     }
+  }
+
+  /**
+   * Triage feed. Runs in parallel with the core fetch and never blocks the
+   * header: if psyche_programme_health is missing (a database that has not had
+   * v8 applied) the rest of the dashboard still works and only this panel
+   * reports the failure.
+   */
+  async function fetchTriage() {
+    const { data, error } = await supabase
+      .rpc('psyche_programme_health', { p_window_days: TRIAGE_WINDOW_DAYS });
+    if (error) setHealthError(error.message);
+    else setHealth(data as ProgrammeHealthPayload);
+    setHealthLoading(false);
   }
 
   const getColorForReason = (reason: string) => {
@@ -134,73 +265,160 @@ export const Dashboard: React.FC = () => {
     return '#4ade80';
   };
 
+  /**
+   * Bulk CSV onboarding.
+   *
+   * Validates the WHOLE file before writing anything. The previous version threw
+   * on the first bad row from inside a forEach, so a 400-row file with one typo
+   * imported nothing and reported a single ID with no row number. All-or-nothing
+   * is kept — a half-loaded roll is worse than none — but the counsellor now
+   * gets every problem at once, located by row, and can fix the file in one pass.
+   */
   const handleBulkUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
+    const input = event.target;
+    const file = input.files?.[0];
     if (!file) return;
 
-    Papa.parse(file, {
+    setImporting(true);
+
+    Papa.parse<Record<string, string>>(file, {
       header: true,
       skipEmptyLines: true,
+      // Excel and Google Sheets routinely leave a stray space (or a BOM) on a
+      // header. Untreated, the column reads as undefined for every row and the
+      // file is reported as empty rather than as malformed — which looks
+      // identical to "the import is broken".
+      transformHeader: h => h.replace(/^﻿/, '').trim().toLowerCase(),
       complete: async (results) => {
         try {
-          alert('Uploading data... Please wait.');
-          const studentsMap = new Map();
+          const errors: string[] = [];
+          const studentsMap = new Map<string, any>();
           const logsToCreate: any[] = [];
 
-          results.data.forEach((row: any) => {
-            const studentId = row.student_id || row.id;
-            if (!studentId) return;
+          results.data.forEach((row, i) => {
+            // +2: one for the header line, one because humans count from 1.
+            const rowNo = i + 2;
+            const get = (k: string) => (row[k] ?? '').toString().trim();
+            const fail = (msg: string) => errors.push(`Row ${rowNo}: ${msg}`);
 
-            // Strict Regex Validation (BUG-001 & BUG-002)
-            const idRegex = /^STU-\d{4}$/;
-            if (!idRegex.test(studentId)) {
-              throw new Error(`Invalid Student ID format: ${studentId}. Must be STU-XXXX.`);
-            }
-
-            const course = row.course || 'Unknown';
-            if (course !== 'Unknown') {
-              const courseRegex = /^[a-zA-Z0-9\s\-_]+$/;
-              if (!courseRegex.test(course)) {
-                throw new Error(`Invalid Course format: ${course}. Must be alphanumeric.`);
+            const studentId = get('student_id') || get('id');
+            if (!studentId) {
+              // A genuinely blank line is skipped; a populated line with no ID
+              // is an error, because silently dropping it loses a student.
+              if (Object.values(row).some(v => (v ?? '').toString().trim() !== '')) {
+                fail('no student_id');
               }
+              return;
+            }
+            if (!isValidStudentId(studentId)) {
+              fail(`student_id "${studentId}" should look like ${STUDENT_ID_HINT}`);
+              return;
             }
 
-            // 1. Prepare Student Data
+            const fullName = get('full_name') || get('name');
+            if (!fullName) {
+              fail(`"${studentId}" has no full_name`);
+              return;
+            }
+
+            const course = get('course');
+            if (course && !/^[\w\s\-./()&,]+$/.test(course)) {
+              fail(`course "${course}" contains unsupported characters`);
+              return;
+            }
+
+            const rawEnrolled = get('enrolled_date');
+            const enrolledDate = rawEnrolled ? parseInputDate(rawEnrolled) : null;
+            if (rawEnrolled && !enrolledDate) {
+              fail(`enrolled_date "${rawEnrolled}" is not DD/MM/YYYY or YYYY-MM-DD`);
+              return;
+            }
+
+            // 1. Prepare Student Data. Names are title-cased to match the
+            //    normalisation AddStudent applies, so an ALL-CAPS register
+            //    export does not sit in the UI shouting.
             if (!studentsMap.has(studentId)) {
               studentsMap.set(studentId, {
                 student_id: studentId,
-                full_name: row.full_name || row.name || 'Unknown',
-                course: course,
-                email: row.email || null,
-                mobile: row.mobile || row.phone || null,
-                fathers_name: row.fathers_name || null,
-                mothers_name: row.mothers_name || null,
-                enrolled_date: row.enrolled_date || null
+                full_name: toTitleCase(fullName),
+                // Left NULL rather than the string 'Unknown': course is the
+                // first cohort key for RSI, and a literal "Unknown" course
+                // would form a bogus peer group instead of falling back.
+                course: course || null,
+                email: get('email') || null,
+                mobile: get('mobile') || get('phone') || null,
+                fathers_name: toTitleCase(get('fathers_name')) || null,
+                mothers_name: toTitleCase(get('mothers_name')) || null,
+                enrolled_date: enrolledDate
               });
             }
 
             // 2. Prepare Log Data if present
-            if (row.reason || row.counselor_name || row.student_response) {
+            const reason = get('reason');
+            if (reason || get('counselor_name') || get('student_response')) {
+              const rawSession = get('session_date');
+              let sessionIso = new Date().toISOString();
+              if (rawSession) {
+                const dateOnly = parseInputDate(rawSession);
+                if (dateOnly) {
+                  sessionIso = new Date(`${dateOnly}T00:00:00`).toISOString();
+                } else {
+                  const t = Date.parse(rawSession); // full ISO timestamps
+                  if (Number.isNaN(t)) {
+                    fail(`session_date "${rawSession}" is not a date this app recognises`);
+                    return;
+                  }
+                  sessionIso = new Date(t).toISOString();
+                }
+              }
+
               logsToCreate.push({
                 _temp_student_id: studentId,
-                counselor_name: row.counselor_name || 'System Import',
-                session_date: row.session_date || new Date().toISOString(),
-                reason: row.reason || 'Imported Log',
-                student_response: row.student_response || '',
-                recommended_action: row.recommended_action || ''
+                counselor_name: get('counselor_name') || 'System Import',
+                session_date: sessionIso,
+                reason: toSentenceCase(reason) || 'Imported Log',
+                student_response: toSentenceCase(get('student_response')),
+                recommended_action: toSentenceCase(get('recommended_action'))
               });
             }
           });
 
+          if (errors.length > 0) {
+            const shown = errors.slice(0, 12).join('\n');
+            const more = errors.length > 12 ? `\n\n…and ${errors.length - 12} more.` : '';
+            alert(
+              `Import cancelled — ${errors.length} problem${errors.length === 1 ? '' : 's'} found. ` +
+              `Nothing was imported.\n\n${shown}${more}`
+            );
+            return;
+          }
+
           const uniqueStudents = Array.from(studentsMap.values());
-          if (uniqueStudents.length === 0) throw new Error('No valid data found in CSV.');
+          if (uniqueStudents.length === 0) {
+            alert(
+              'No student rows found in that file.\n\n' +
+              'The first line must be a header row containing at least ' +
+              '"student_id" and "full_name".'
+            );
+            return;
+          }
+
+          // Upsert overwrites existing students that share an ID, so say so
+          // before touching live records.
+          const logNote = logsToCreate.length
+            ? ` and ${logsToCreate.length} session record${logsToCreate.length === 1 ? '' : 's'}`
+            : '';
+          if (!window.confirm(
+            `Import ${uniqueStudents.length} student${uniqueStudents.length === 1 ? '' : 's'}${logNote}?\n\n` +
+            'Any student already on the roll with a matching ID will be updated with the values in this file.'
+          )) return;
 
           // 3. Upsert Students
           const { data: upsertedStudents, error: studentError } = await supabase
             .from('PsychE_Students')
             .upsert(uniqueStudents, { onConflict: 'student_id' })
             .select('id, student_id');
-            
+
           if (studentError) throw studentError;
 
           // 4. Map UUIDs and Insert Logs
@@ -216,7 +434,16 @@ export const Dashboard: React.FC = () => {
                 session_date: log.session_date,
                 reason: log.reason,
                 student_response: log.student_response,
-                recommended_action: log.recommended_action
+                recommended_action: log.recommended_action,
+                // Imported rows are historical records, so they must land as
+                // Completed. Without this the column DEFAULT made every one a
+                // 'Scheduled' session that never happened — permanently open on
+                // the dashboard and excluded from every completed-session count.
+                session_status: 'Completed',
+                // Explicit NULL, not the column DEFAULT of 'Pending': a Pending
+                // status with no date is the phantom follow-up that v7_2 exists
+                // to stop, and it silently depresses ETI and Composite.
+                follow_up_status: null
               }));
 
             if (finalLogs.length > 0) {
@@ -230,15 +457,30 @@ export const Dashboard: React.FC = () => {
         } catch (error: any) {
           console.error(error);
           alert(`Error uploading CSV: ${error.message}`);
+        } finally {
+          setImporting(false);
+          // Clearing the input matters: without it, re-picking the SAME file
+          // after fixing nothing fires no change event, so the import appears
+          // to do nothing at all.
+          input.value = '';
         }
+      },
+      error: (err) => {
+        console.error(err);
+        alert(`Could not read that file: ${err.message}`);
+        setImporting(false);
+        input.value = '';
       }
     });
   };
 
   const downloadCsvTemplate = () => {
     const templateData = [
+      // student_id MUST match utils/studentId.ts. The old template shipped
+      // 'STU-101', which the importer itself rejected — downloading the
+      // template and re-importing it was guaranteed to fail.
       {
-        student_id: 'STU-101',
+        student_id: 'STU-2026-101',
         full_name: 'John Doe',
         course: '10th Grade Section A',
         email: 'john@student.gcm.edu',
@@ -251,6 +493,22 @@ export const Dashboard: React.FC = () => {
         reason: 'Academic Stress',
         student_response: 'Student felt overwhelmed with upcoming exams.',
         recommended_action: 'Scheduled a follow-up session next week.'
+      },
+      // Roll-only row: every session column may be left blank.
+      {
+        student_id: 'STU-2026-102',
+        full_name: 'Aagaz Dhiman',
+        course: '9TH A',
+        email: 'aagaz102@gcmconventschool.com',
+        mobile: '+91 8427002262',
+        fathers_name: 'Pardeep S',
+        mothers_name: 'Mandeep K',
+        enrolled_date: '',
+        counselor_name: '',
+        session_date: '',
+        reason: '',
+        student_response: '',
+        recommended_action: ''
       }
     ];
     const csv = Papa.unparse(templateData);
@@ -366,110 +624,141 @@ export const Dashboard: React.FC = () => {
     }
   };
 
-  const today = new Date();
+  // -----------------------------------------------------------------------
+  //  Derived view state — all pure, all from operationalDay.ts
+  // -----------------------------------------------------------------------
 
+  const now = new Date();
+  const buckets = useMemo(() => bucketScheduled(scheduled), [scheduled]);
+  // Follow-ups that already have a Scheduled session booked for them are
+  // dropped first — AddLog writes both, and showing both would list the same
+  // commitment twice on this page and double-count it in the header.
+  const fu = useMemo(
+    () => bucketFollowUps(dedupeFollowUps(followUps, scheduled)),
+    [followUps, scheduled]
+  );
+  const mo = useMemo(() => momentum(completedByDay, MOMENTUM_DAYS), [completedByDay]);
+
+  const completedToday = useMemo(() => {
+    const t = todayKey();
+    return completedByDay.find(d => d.day === t)?.completed ?? 0;
+  }, [completedByDay]);
+
+  const load = dayLoad(buckets.today.length, completedToday, capacity ?? 0);
+
+  const drifting: StudentRollup[] = useMemo(
+    () => health ? underServed(health.students ?? [], MIN_COMPOSITE_CONFIDENCE, 30).slice(0, 6) : [],
+    [health]
+  );
+
+  const focus = focusState({
+    todaySessions: buckets.today.length,
+    overdueSessions: buckets.overdue.length,
+    followUpsOverdue: fu.overdue.length,
+    followUpsToday: fu.today.length,
+    drifting: drifting.length
+  });
+
+  const controls: ScheduleControls = {
+    rescheduleId,
+    newDate,
+    onOpen: (id) => navigate(`/add-log?schedule_id=${id}`),
+    onDelete: handleDeleteSession,
+    onToggleReschedule: (id) => { setRescheduleId(id === rescheduleId ? null : id); setNewDate(''); },
+    onNewDate: setNewDate,
+    onConfirmReschedule: handleReschedule,
+    onCancelReschedule: () => { setRescheduleId(null); setNewDate(''); }
+  };
+
+  const openStudent = (sid: string) => navigate(`/student/${sid}`);
 
   return (
-    <motion.div 
+    <motion.div
       variants={container}
       initial="hidden"
       animate="show"
       style={{ padding: '1rem 0' }}
     >
-      <div className="flex justify-between items-center mb-6 mobile-stack mobile-stack-start" style={{ gap: '1rem' }}>
-        <div>
-          <h1 className="text-h1 break-words">Welcome back, Counselor</h1>
-          <p className="text-muted">Here's what's happening at GCM Convent School today.</p>
-        </div>
-        <div className="text-right mobile-text-left">
-          <p className="text-h2 break-words">{new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(today)}</p>
-          <p className="text-muted">{new Intl.DateTimeFormat('en-GB', { weekday: 'long' }).format(today)}</p>
-        </div>
-      </div>
-
       <div className="bento-grid">
-        {/* Quick Add Log - Main Action */}
-        <motion.div variants={item} className="bento-card col-span-8" style={{ position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-          <div style={{ position: 'absolute', top: '-50%', right: '-10%', width: '300px', height: '300px', background: 'radial-gradient(circle, rgba(94, 106, 210, 0.2) 0%, rgba(0,0,0,0) 70%)', borderRadius: '50%' }}></div>
-          
-          <h2 className="text-h2 mb-4">Log a New Session</h2>
-          <p className="text-muted mb-6" style={{ maxWidth: '80%' }}>Quickly record a counseling session. Search for an existing student or add a new one inline to keep your records updated effortlessly.</p>
-          
-          <div className="flex gap-4 flex-wrap">
-            <motion.button 
-              onClick={() => navigate('/add-log')}
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              className="btn btn-primary" 
-              style={{ background: 'linear-gradient(135deg, var(--color-primary), #8b5cf6)', border: 'none', padding: '0.75rem 1.5rem', fontSize: '1rem' }}
-            >
-              <Plus size={20} />
-              Add New Log
-            </motion.button>
-            <motion.button 
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              className="btn btn-secondary"
-              style={{ padding: '0.75rem 1.5rem', fontSize: '1rem' }}
-              onClick={() => navigate('/directory')}
-            >
-              <Search size={20} />
-              Find Student
-            </motion.button>
-          </div>
-        </motion.div>
+        {/* ── 1. Focus hero — what today is ─────────────────────────────── */}
+        <FocusHero
+          now={now}
+          greeting={greeting(now)}
+          focus={focus}
+          load={load}
+          capacityKnown={capacity != null}
+          onPrimary={() => navigate('/add-log')}
+          onSchedule={() => navigate('/bulk-schedule')}
+        />
 
-        {/* Stats Summary */}
-        <motion.div variants={item} className="bento-card col-span-4" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', height: '100%' }}>
-          <div 
-            onClick={() => navigate('/directory')}
-            style={{ cursor: 'pointer', transition: 'all 0.2s', padding: '1rem', borderRadius: 'var(--radius-md)' }}
-            onMouseEnter={(e) => { e.currentTarget.style.transform = 'scale(1.02)'; e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.05)'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.backgroundColor = 'transparent'; }}
-          >
-            <div className="flex items-center gap-2 mb-2 text-muted">
-              <Users size={18} />
-              <span style={{ fontWeight: 500 }}>Total Students <ChevronRight size={14} style={{ display: 'inline' }}/></span>
-            </div>
-            <p style={{ fontSize: '3rem', fontWeight: 700, lineHeight: 1 }}>{loading ? '...' : totalStudents}</p>
-          </div>
-          <div 
-            onClick={() => navigate('/logs')}
-            style={{ cursor: 'pointer', transition: 'all 0.2s', padding: '1rem', borderRadius: 'var(--radius-md)', marginTop: '1rem' }}
-            onMouseEnter={(e) => { e.currentTarget.style.transform = 'scale(1.02)'; e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.05)'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.backgroundColor = 'transparent'; }}
-          >
-            <div className="flex items-center gap-2 mb-2 text-muted">
-              <FileText size={18} />
-              <span style={{ fontWeight: 500 }}>Sessions This Month <ChevronRight size={14} style={{ display: 'inline' }}/></span>
-            </div>
-            <p style={{ fontSize: '2rem', fontWeight: 700, lineHeight: 1, color: 'var(--color-primary)' }}>{loading ? '...' : sessionsThisMonth}</p>
-          </div>
-        </motion.div>
+        {/* ── 2. Today ─────────────────────────────────────────────────── */}
+        <TodayLineUp
+          rows={buckets.today}
+          undated={buckets.undated}
+          completedToday={completedToday}
+          controls={controls}
+          onSchedule={() => navigate('/bulk-schedule')}
+          onOpenStudent={openStudent}
+        />
 
-        {/* Recent Activity Timeline */}
+        <AttentionPanel
+          overdueSessions={buckets.overdue}
+          overdueFollowUps={fu.overdue}
+          followUpsToday={fu.today}
+          controls={controls}
+          onOpenStudent={openStudent}
+        />
+
+        {/* ── 3. Who needs seeing ──────────────────────────────────────── */}
+        <DriftPanel
+          students={drifting}
+          windowDays={TRIAGE_WINDOW_DAYS}
+          loading={healthLoading}
+          error={healthError}
+          onOpenStudent={openStudent}
+          onViewAll={() => navigate('/analytics')}
+        />
+
+        <WatchlistPanel
+          students={highRiskStudents}
+          onOpenStudent={openStudent}
+          onViewAll={() => navigate('/directory')}
+        />
+
+        {/* ── 4. The week, and what just happened ──────────────────────── */}
+        <AheadPanel
+          rows={buckets.ahead}
+          followUps={fu.soon}
+          onOpen={(id) => navigate(`/add-log?schedule_id=${id}`)}
+          onOpenStudent={openStudent}
+        />
+
         <motion.div variants={item} className="bento-card col-span-7">
           <div className="flex justify-between items-center mb-6">
-            <h3 className="text-h3 flex items-center gap-2"><Clock size={20} className="text-muted"/> Recent Logs</h3>
-            <button onClick={() => navigate('/logs')} className="text-muted" style={{ fontSize: '0.875rem', display: 'flex', alignItems: 'center' }}>View all <ChevronRight size={16} /></button>
+            <h3 className="text-h3 flex items-center gap-2" style={{ fontSize: '1rem' }}>
+              <Clock size={18} className="text-muted" /> Recent activity
+            </h3>
+            <button onClick={() => navigate('/logs')} className="text-muted" style={{ fontSize: '0.8rem', display: 'flex', alignItems: 'center' }}>
+              View all <ChevronRight size={16} />
+            </button>
           </div>
-          
-          <div className="flex" style={{ flexDirection: 'column', gap: '1rem', minWidth: 0 }}>
+
+          <div className="flex" style={{ flexDirection: 'column', gap: '0.75rem', minWidth: 0 }}>
             {loading ? (
-              <p className="text-muted text-center py-4">Loading recent logs...</p>
+              <p className="text-muted text-center" style={{ padding: '1rem 0' }}>Loading recent logs...</p>
             ) : recentLogs.length === 0 ? (
-              <p className="text-muted text-center py-4">No recent counseling logs found.</p>
+              <p className="text-muted text-center" style={{ padding: '1rem 0' }}>No recent counseling logs found.</p>
             ) : (
               recentLogs.map((log) => (
-                <motion.div 
+                <motion.div
                   key={log.id}
                   onClick={() => navigate(`/student/${log.student_sid || log.student_uuid}`)}
                   whileHover={{ x: 5, backgroundColor: 'rgba(255,255,255,0.03)' }}
-                  style={{ 
-                    display: 'flex', 
-                    alignItems: 'center', 
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
                     justifyContent: 'space-between',
-                    padding: '0.75rem',
+                    padding: '0.6rem 0.75rem',
                     borderRadius: 'var(--radius-md)',
                     transition: 'background-color 0.2s',
                     cursor: 'pointer',
@@ -477,13 +766,13 @@ export const Dashboard: React.FC = () => {
                   }}
                 >
                   <div className="flex items-center gap-4" style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: log.color, flexShrink: 0 }}></div>
+                    <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: log.color, flexShrink: 0 }}></div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <p style={{ fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{log.student}</p>
-                      <p className="text-muted" style={{ fontSize: '0.875rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{log.reason}</p>
+                      <p className="text-muted" style={{ fontSize: '0.8rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{log.reason}</p>
                     </div>
                   </div>
-                  <div className="text-right text-muted" style={{ fontSize: '0.875rem', flexShrink: 0, marginLeft: '0.5rem' }}>
+                  <div className="text-right text-muted" style={{ fontSize: '0.8rem', flexShrink: 0, marginLeft: '0.5rem' }}>
                     {log.date}
                   </div>
                 </motion.div>
@@ -492,204 +781,96 @@ export const Dashboard: React.FC = () => {
           </div>
         </motion.div>
 
-        {/* Quick Actions / Shortcuts */}
-        <motion.div variants={item} className="bento-card col-span-5" style={{ background: 'linear-gradient(to bottom right, var(--color-surface), rgba(94, 106, 210, 0.05))' }}>
-          <h3 className="text-h3 mb-4">Quick Links</h3>
-          <div className="flex" style={{ flexDirection: 'column', gap: '0.75rem' }}>
-            
-            <input 
-              type="file" 
-              accept=".csv" 
-              ref={fileInputRef} 
-              style={{ display: 'none' }} 
-              onChange={handleBulkUpload}
+        {/* ── 5. Pulse and bulk tools ──────────────────────────────────── */}
+        <MomentumPanel
+          m={mo}
+          capacity={capacity ?? 0}
+          capacityKnown={capacity != null}
+          sessionsThisMonth={sessionsThisMonth}
+          totalStudents={totalStudents}
+          onStudents={() => navigate('/directory')}
+          onLogs={() => navigate('/logs')}
+        />
+
+        <motion.div variants={item} className="bento-card col-span-8">
+          <h3 className="text-h3 mb-4" style={{ fontSize: '1rem' }}>Bulk tools</h3>
+
+          <input
+            type="file"
+            accept=".csv"
+            ref={fileInputRef}
+            style={{ display: 'none' }}
+            onChange={handleBulkUpload}
+          />
+
+          <div className="dash-tools no-print" style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))',
+            gap: '0.75rem'
+          }}>
+            <ToolButton
+              onClick={() => fileInputRef.current?.click()}
+              icon={<Users size={20} color="var(--color-primary)" />}
+              tint="rgba(91, 138, 245, 0.12)"
+              title="Bulk onboard"
+              sub={importing ? 'Reading file…' : 'Upload student CSV'}
+              busy={importing}
             />
-            
-            <div className="flex gap-2 w-full mobile-stack">
-              <motion.button 
-                onClick={() => fileInputRef.current?.click()}
-                whileHover={{ scale: 1.02 }} 
-                className="btn btn-secondary" 
-                style={{ flex: 1, justifyContent: 'flex-start', padding: '1rem', border: '1px solid var(--color-border)', cursor: 'pointer' }}
-              >
-                <div style={{ background: 'rgba(94, 106, 210, 0.1)', padding: '0.5rem', borderRadius: '8px', marginRight: '0.5rem' }}>
-                  <Users size={20} color="var(--color-primary)" />
-                </div>
-                <div style={{ textAlign: 'left' }}>
-                  <p style={{ fontWeight: 600 }}>Bulk Onboard</p>
-                  <p className="text-muted" style={{ fontSize: '0.75rem' }}>Upload CSV</p>
-                </div>
-              </motion.button>
-              
-              <motion.button 
-                onClick={downloadCsvTemplate}
-                whileHover={{ scale: 1.02 }} 
-                className="btn btn-secondary" 
-                style={{ flex: 1, justifyContent: 'flex-start', padding: '1rem', border: '1px solid var(--color-border)', cursor: 'pointer' }}
-              >
-                <div style={{ background: 'rgba(255, 255, 255, 0.05)', padding: '0.5rem', borderRadius: '8px', marginRight: '0.5rem' }}>
-                  <Download size={20} className="text-muted" />
-                </div>
-                <div style={{ textAlign: 'left' }}>
-                  <p style={{ fontWeight: 600 }}>Template</p>
-                  <p className="text-muted" style={{ fontSize: '0.75rem' }}>Download CSV</p>
-                </div>
-              </motion.button>
-            </div>
-            
-            <motion.button 
+            <ToolButton
+              onClick={downloadCsvTemplate}
+              icon={<Download size={20} className="text-muted" />}
+              tint="rgba(255, 255, 255, 0.05)"
+              title="Template"
+              sub="Download CSV format"
+            />
+            <ToolButton
               onClick={generateMonthlyReport}
-              whileHover={{ scale: 1.02 }} 
-              className="btn btn-secondary mb-2" 
-              style={{ width: '100%', justifyContent: 'flex-start', padding: '1rem', border: '1px solid var(--color-border)', cursor: 'pointer' }}
-            >
-              <div style={{ background: 'rgba(74, 222, 128, 0.1)', padding: '0.5rem', borderRadius: '8px', marginRight: '0.5rem' }}>
-                <FileText size={20} color="var(--color-success)" />
-              </div>
-              <div style={{ textAlign: 'left' }}>
-                <p style={{ fontWeight: 600 }}>Generate Monthly Report</p>
-                <p className="text-muted" style={{ fontSize: '0.75rem' }}>Export session analytics</p>
-              </div>
-            </motion.button>
-            
-            <motion.button 
-              onClick={() => navigate('/directory')}
-              whileHover={{ scale: 1.02 }} 
-              className="btn btn-secondary" 
-              style={{ width: '100%', justifyContent: 'flex-start', padding: '1rem', border: '1px solid var(--color-border)', cursor: 'pointer' }}
-            >
-              <div style={{ background: 'rgba(94, 106, 210, 0.1)', padding: '0.5rem', borderRadius: '8px', marginRight: '0.5rem' }}>
-                <Calendar size={20} color="var(--color-primary)" />
-              </div>
-              <div style={{ textAlign: 'left' }}>
-                <p style={{ fontWeight: 600 }}>Bulk Auto-Scheduler</p>
-                <p className="text-muted" style={{ fontSize: '0.75rem' }}>Distribute new initial sessions</p>
-              </div>
-            </motion.button>
-          </div>
-        </motion.div>
-
-        {/* Upcoming & Overdue Follow-ups */}
-        <motion.div variants={item} className="bento-card col-span-7">
-          <h3 className="text-h3 mb-4" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <Calendar size={20} style={{ color: 'var(--color-primary)' }} /> Scheduled Sessions
-          </h3>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', minWidth: 0 }}>
-
-            {overdueFollowUps.length === 0 && upcomingFollowUps.length === 0 ? (
-              <p className="text-muted" style={{ padding: '1rem 0' }}>No pending sessions scheduled.</p>
-            ) : (
-              [...overdueFollowUps.map(fu => ({ ...fu, _isOverdue: true })), ...upcomingFollowUps.map(fu => ({ ...fu, _isOverdue: false }))].map(fu => (
-                <div key={fu.id}>
-                  {/* ── Main Session Row ── */}
-                  <div
-                    onClick={() => navigate(`/add-log?schedule_id=${fu.id}`)}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      gap: '1rem',
-                      padding: '0.875rem 1rem',
-                      borderRadius: 'var(--radius-md)',
-                      backgroundColor: fu._isOverdue ? 'rgba(239, 68, 68, 0.04)' : 'rgba(255,255,255,0.02)',
-                      border: `1px solid ${fu._isOverdue ? 'rgba(239,68,68,0.15)' : 'rgba(255,255,255,0.06)'}`,
-                      cursor: 'pointer',
-                      transition: 'background-color 0.15s ease'
-                    }}
-                    onMouseEnter={e => { e.currentTarget.style.backgroundColor = fu._isOverdue ? 'rgba(239,68,68,0.08)' : 'rgba(255,255,255,0.05)'; }}
-                    onMouseLeave={e => { e.currentTarget.style.backgroundColor = fu._isOverdue ? 'rgba(239,68,68,0.04)' : 'rgba(255,255,255,0.02)'; }}
-                  >
-                    {/* Left: Identity */}
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', flex: 1, minWidth: 0 }}>
-                      <p style={{ fontWeight: 600, fontSize: '0.9375rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {fu.PsychE_Students?.full_name || 'Unknown Student'}
-                      </p>
-                      <p style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {toSentenceCase(fu.reason)}
-                      </p>
-                    </div>
-
-                    {/* Right: Status + Date + Actions */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem', flexShrink: 0 }}>
-                      {fu._isOverdue && (
-                        <span style={{ fontSize: '0.625rem', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', padding: '0.2rem 0.5rem', borderRadius: '4px', backgroundColor: 'rgba(239,68,68,0.12)', color: '#f87171', border: '1px solid rgba(239,68,68,0.25)', whiteSpace: 'nowrap' }}>
-                          Overdue
-                        </span>
-                      )}
-                      <span style={{ fontSize: '0.8125rem', fontWeight: 500, color: fu._isOverdue ? '#f87171' : 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>
-                        {formatDisplayDate(fu.scheduled_date)}
-                      </span>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); setRescheduleId(fu.id === rescheduleId ? null : fu.id); setNewDate(''); }}
-                          title="Reschedule"
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', display: 'flex', alignItems: 'center', padding: '0.375rem', borderRadius: '6px', transition: 'color 0.15s, background-color 0.15s' }}
-                          onMouseEnter={e => { e.currentTarget.style.color = 'var(--color-text)'; e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.06)'; }}
-                          onMouseLeave={e => { e.currentTarget.style.color = 'var(--color-text-muted)'; e.currentTarget.style.backgroundColor = 'transparent'; }}
-                        >
-                          <Calendar size={15} />
-                        </button>
-                        <button
-                          onClick={(e) => handleDeleteSession(e, fu.id)}
-                          title="Delete"
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', display: 'flex', alignItems: 'center', padding: '0.375rem', borderRadius: '6px', transition: 'color 0.15s, background-color 0.15s' }}
-                          onMouseEnter={e => { e.currentTarget.style.color = '#f87171'; e.currentTarget.style.backgroundColor = 'rgba(239,68,68,0.08)'; }}
-                          onMouseLeave={e => { e.currentTarget.style.color = 'var(--color-text-muted)'; e.currentTarget.style.backgroundColor = 'transparent'; }}
-                        >
-                          <Trash size={15} />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* ── Inline Reschedule Row ── */}
-                  {rescheduleId === fu.id && (
-                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', padding: '0.5rem 1rem 0.5rem 1rem', backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: '0 0 var(--radius-md) var(--radius-md)', border: '1px solid rgba(255,255,255,0.06)', borderTop: 'none', marginTop: '-4px' }}>
-                      <input
-                        type="date"
-                        className="input"
-                        style={{ flex: 1, padding: '0.375rem 0.625rem', fontSize: '0.875rem' }}
-                        value={newDate}
-                        min={new Date().toISOString().split('T')[0]}
-                        onChange={(e) => setNewDate(e.target.value)}
-                      />
-                      <button onClick={(e) => handleReschedule(e, fu.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#4ade80', display: 'flex', padding: '0.375rem' }}>
-                        <Check size={18} />
-                      </button>
-                      <button onClick={(e) => { e.stopPropagation(); setRescheduleId(null); setNewDate(''); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', display: 'flex', padding: '0.375rem' }}>
-                        <XCircle size={18} />
-                      </button>
-                    </div>
-                  )}
-                </div>
-              ))
-            )}
-          </div>
-        </motion.div>
-
-        {/* High Risk Watchlist */}
-        <motion.div variants={item} className="bento-card col-span-5" style={{ border: '1px solid rgba(239, 68, 68, 0.2)' }}>
-          <h3 className="text-h3 mb-4 flex items-center gap-2" style={{ color: '#ef4444' }}><Users size={20} /> High Risk Watchlist</h3>
-          <div className="flex" style={{ flexDirection: 'column', gap: '1rem', flex: 1 }}>
-            {highRiskStudents.length === 0 ? (
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '250px' }}>
-                <ShieldCheck size={48} className="text-muted mb-4" />
-                <p className="text-muted">No high-risk students at this time.</p>
-              </div>
-            ) : (
-              highRiskStudents.map(student => (
-                <div key={student.id} onClick={() => navigate(`/student/${student.student_id || student.id}`)} className="flex justify-between items-center p-3" style={{ backgroundColor: 'rgba(239, 68, 68, 0.05)', borderRadius: 'var(--radius-md)', cursor: 'pointer' }}>
-                  <div>
-                    <p style={{ fontWeight: 600 }}>{student.full_name}</p>
-                    <p className="text-muted" style={{ fontSize: '0.875rem' }}>{student.course}</p>
-                  </div>
-                  <ChevronRight size={16} className="text-muted" />
-                </div>
-              ))
-            )}
+              icon={<FileText size={20} color="var(--color-success)" />}
+              tint="rgba(63, 201, 143, 0.12)"
+              title="Monthly report"
+              sub="Export this month's sessions"
+            />
+            <ToolButton
+              onClick={() => navigate('/bulk-schedule')}
+              icon={<Calendar size={20} color="var(--color-primary)" />}
+              tint="rgba(91, 138, 245, 0.12)"
+              title="Auto-scheduler"
+              sub="Distribute initial sessions"
+            />
           </div>
         </motion.div>
       </div>
     </motion.div>
   );
 };
+
+/** One bulk-tool tile. Kept local — nothing else in the app needs this shape. */
+const ToolButton: React.FC<{
+  onClick: () => void;
+  icon: React.ReactNode;
+  tint: string;
+  title: string;
+  sub: string;
+  busy?: boolean;
+}> = ({ onClick, icon, tint, title, sub, busy }) => (
+  <motion.button
+    onClick={onClick}
+    disabled={busy}
+    whileHover={busy ? undefined : { scale: 1.02 }}
+    whileTap={busy ? undefined : { scale: 0.98 }}
+    className="btn btn-secondary"
+    style={{
+      justifyContent: 'flex-start', padding: '0.875rem', border: '1px solid var(--color-border)',
+      cursor: busy ? 'progress' : 'pointer', textAlign: 'left', minWidth: 0,
+      opacity: busy ? 0.6 : 1
+    }}
+  >
+    <span style={{ background: tint, padding: '0.5rem', borderRadius: '8px', marginRight: '0.6rem', display: 'flex', flexShrink: 0 }}>
+      {icon}
+    </span>
+    <span style={{ minWidth: 0 }}>
+      <span style={{ fontWeight: 600, display: 'block' }}>{title}</span>
+      <span className="text-muted" style={{ fontSize: '0.72rem', display: 'block' }}>{sub}</span>
+    </span>
+  </motion.button>
+);
