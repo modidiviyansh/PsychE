@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { ArrowLeft, Calendar, CheckSquare, Square } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { parseISO } from 'date-fns';
 import { supabase } from '../lib/supabase';
 import { getAvailableCapacityForDateRange } from '../lib/capacity';
 
@@ -85,7 +86,11 @@ export const BulkSchedule: React.FC = () => {
       }
       
       // We need enough capacity for all selected students. Let's fetch next 30 days.
-      const start = new Date(startDate);
+      // parseISO (not `new Date(str)`) — a bare YYYY-MM-DD parses as UTC midnight
+      // in the native constructor, which shifts to the previous local day for
+      // negative-offset timezones. parseISO treats a date-only string as local
+      // midnight instead (BUG-001).
+      const start = parseISO(startDate);
       const capacityData = await getAvailableCapacityForDateRange(start, 30);
       
       // Convert to array and sort by date ascending
@@ -117,7 +122,7 @@ export const BulkSchedule: React.FC = () => {
         logsToInsert.push({
           student_uuid: student.id,
           counselor_name: 'System Auto-Scheduler',
-          session_date: new Date(assignedDate).toISOString(), // Dummy time, it's just scheduled
+          session_date: parseISO(assignedDate).toISOString(), // Dummy time, it's just scheduled
           scheduled_date: assignedDate,
           session_status: 'Scheduled',
           reason: 'Initial Assessment',

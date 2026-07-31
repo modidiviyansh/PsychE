@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Edit2, Calendar, Phone, Mail, BookOpen, ArrowLeft, Eye, EyeOff, User, BrainCircuit, FileDown, X, Tag, Plus, Activity, Sparkles, AlertTriangle, FileText } from 'lucide-react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { parseISO } from 'date-fns';
 import { supabase } from '../lib/supabase';
 import { AssessmentWizard } from '../components/AssessmentWizard';
 import type { AIReport, FormalizedSession, NoteKind, StudentNote, TelemetryPayload } from '../types';
@@ -702,7 +703,7 @@ export const StudentProfile: React.FC = () => {
             {student.enrolled_date && (
             <div className="flex items-center gap-3">
               <div style={{ padding: '0.5rem', backgroundColor: 'var(--color-bg)', borderRadius: 'var(--radius-md)' }}><Calendar size={16} className="text-primary"/></div>
-              <div><p className="text-muted" style={{ fontSize: '0.75rem' }}>Enrolled</p><p style={{ fontWeight: 500 }}>{new Date(student.enrolled_date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</p></div>
+              <div><p className="text-muted" style={{ fontSize: '0.75rem' }}>Enrolled</p><p style={{ fontWeight: 500 }}>{parseISO(student.enrolled_date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</p></div>
             </div>
             )}
 

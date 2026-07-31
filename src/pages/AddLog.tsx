@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowLeft, Save, Sparkles, CheckCircle, Calendar as CalendarIcon, FileText, AlertTriangle } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { parseISO } from 'date-fns';
 import { supabase } from '../lib/supabase';
 import { getAvailableCapacityForDateRange } from '../lib/capacity';
 import { toSentenceCase } from '../utils/stringFormatter';
@@ -355,7 +356,10 @@ export const AddLog: React.FC = () => {
       
       // 3. Handle Auto-Scheduling for follow-up
       if (followUpDate) {
-        const followUpIso = new Date(followUpDate).toISOString();
+        // parseISO, not `new Date(followUpDate)` — a bare YYYY-MM-DD parses as
+        // UTC midnight natively, shifting to the previous local day for
+        // negative-offset timezones (BUG-001).
+        const followUpIso = parseISO(followUpDate).toISOString();
         await supabase.from('PsychE_Counseling_Logs').insert([
           {
             student_uuid: studentUuid,

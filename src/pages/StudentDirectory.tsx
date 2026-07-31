@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Users, Search, Printer, ArrowLeft, CheckSquare, Square, Calendar, ChevronDown, ChevronUp, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { parseISO } from 'date-fns';
 import { supabase } from '../lib/supabase';
 import { getAvailableCapacityForDateRange } from '../lib/capacity';
 
@@ -243,7 +244,10 @@ export const StudentDirectory: React.FC = () => {
         return;
       }
 
-      const start = new Date(schedStartDate);
+      // parseISO, not `new Date(str)` — schedStartDate is a bare YYYY-MM-DD from
+      // the date input, which the native constructor parses as UTC midnight and
+      // shifts to the previous local day for negative-offset timezones (BUG-001).
+      const start = parseISO(schedStartDate);
       const capacityData = await getAvailableCapacityForDateRange(start, 30);
       const availableDays = Object.keys(capacityData).sort().map(date => ({
         date,
@@ -266,7 +270,7 @@ export const StudentDirectory: React.FC = () => {
         logsToInsert.push({
           student_uuid: student.id,
           counselor_name: 'System Auto-Scheduler',
-          session_date: new Date(assignedDate).toISOString(),
+          session_date: parseISO(assignedDate).toISOString(),
           scheduled_date: assignedDate,
           session_status: 'Scheduled',
           reason: 'Initial Assessment',
@@ -656,7 +660,7 @@ export const StudentDirectory: React.FC = () => {
                         </span>
                       </td>
                       <td style={{ padding: '1rem 0.75rem', color: 'var(--color-text-muted)', fontSize: '0.875rem' }}>
-                        {student.enrolled_date ? new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date(student.enrolled_date)) : 'N/A'}
+                        {student.enrolled_date ? new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(parseISO(student.enrolled_date)) : 'N/A'}
                       </td>
                     </tr>
                   ))}

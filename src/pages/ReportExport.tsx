@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
+import { parseISO } from 'date-fns';
 import { supabase } from '../lib/supabase';
 import { Printer, ArrowLeft } from 'lucide-react';
 import { PrintSessionCard } from '../components/print/PrintSessionCard';
@@ -40,8 +41,12 @@ export const ReportExport: React.FC = () => {
           .order('session_date', { ascending: true }); // Chronological for statement
 
         if (!allTime && startDate && endDate) {
-          const startIso = new Date(startDate).toISOString();
-          const endD = new Date(endDate);
+          // parseISO, not `new Date(str)` — start/end are bare YYYY-MM-DD query
+          // params, which the native constructor parses as UTC midnight and
+          // shifts to the previous local day for negative-offset timezones,
+          // silently dropping/including sessions at the range boundary (BUG-001).
+          const startIso = parseISO(startDate).toISOString();
+          const endD = parseISO(endDate);
           endD.setHours(23, 59, 59, 999);
           const endIso = endD.toISOString();
 
@@ -104,7 +109,7 @@ export const ReportExport: React.FC = () => {
           <div style={{ textAlign: 'right', fontSize: '0.875rem' }}>
             <p style={{ margin: 0 }}><strong>Generated:</strong> {new Date().toLocaleDateString()}</p>
             <p style={{ margin: '0.25rem 0 0 0' }}>
-              <strong>Period:</strong> {allTime ? 'Full History (All Time)' : `${new Date(startDate!).toLocaleDateString()} - ${new Date(endDate!).toLocaleDateString()}`}
+              <strong>Period:</strong> {allTime ? 'Full History (All Time)' : `${parseISO(startDate!).toLocaleDateString()} - ${parseISO(endDate!).toLocaleDateString()}`}
             </p>
           </div>
         </div>

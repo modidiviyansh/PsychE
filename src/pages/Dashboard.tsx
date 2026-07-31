@@ -4,6 +4,7 @@ import { Users, Clock, Download, FileText, ChevronRight, Calendar } from 'lucide
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import Papa from 'papaparse';
+import { parseISO } from 'date-fns';
 import { formatDisplayDate, parseInputDate } from '../utils/dateFormatter';
 import { toSentenceCase, toTitleCase } from '../utils/stringFormatter';
 import { isValidStudentId, STUDENT_ID_HINT } from '../utils/studentId';
@@ -601,7 +602,10 @@ export const Dashboard: React.FC = () => {
       return;
     }
 
-    const selectedDate = new Date(newDate);
+    // parseISO, not `new Date(newDate)` — newDate is a bare YYYY-MM-DD from the
+    // date input, which the native constructor parses as UTC midnight and
+    // shifts to the previous local day for negative-offset timezones (BUG-001).
+    const selectedDate = parseISO(newDate);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 

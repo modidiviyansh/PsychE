@@ -1,3 +1,8 @@
+---
+name: aibugfinder
+description: The Ultimate Universal Code Forensics & Bug Elimination Framework
+---
+
 # The Ultimate Universal Code Forensics & Bug Elimination Framework
 ## Complete Language-Agnostic Bug Hunting System with Enhanced Persistent Memory, Multi-Personality Investigation, Forced Progress Mechanisms & Integrated Tool Execution
 
